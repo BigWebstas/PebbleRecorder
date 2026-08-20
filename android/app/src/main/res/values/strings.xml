@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">PebbleRecorder</string>
+    <string name="main_status_text">PebbleRecorder is listening for the watch trigger in the background. Open the watchapp on your paired Pebble to send a start/stop command.</string>
+</resources>

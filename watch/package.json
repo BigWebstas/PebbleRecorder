@@ -1,0 +1,33 @@
+{
+  "name": "watch",
+  "author": "MakeAwesomeHappen",
+  "version": "1.0.0",
+  "keywords": ["pebble-app"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "PebbleRecorder",
+    "uuid": "252148a0-e241-4bc2-a9d5-07004df158e9",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "aplite",
+      "basalt",
+      "chalk",
+      "diorite",
+      "emery",
+      "flint",
+      "gabbro"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "COMMAND",
+      "STATUS"
+    ],
+    "resources": {
+      "media": []
+    }
+  }
+}
