@@ -8,6 +8,10 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.location.Address
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationManager
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -21,11 +25,15 @@ import io.rebble.pebblekit2.common.model.PebbleDictionary
 import io.rebble.pebblekit2.common.model.PebbleDictionaryItem
 import io.rebble.pebblekit2.common.model.ReceiveResult
 import io.rebble.pebblekit2.common.model.WatchIdentifier
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import kotlin.coroutines.resume
 
 private const val TAG = "PebbleListenerService"
 private const val NOTIFICATION_CHANNEL_ID = "recording"
@@ -52,6 +60,8 @@ class PebbleListenerService : BasePebbleListenerService() {
     private var recorder: MediaRecorder? = null
     private var outputFile: ParcelFileDescriptor? = null
     private var recordingFile: DocumentFile? = null
+    private var finalRecordingName: String? = null
+    private var recordingLocation: Location? = null
     private var isPaused = false
 
     override fun onCreate() {
@@ -124,10 +134,17 @@ class PebbleListenerService : BasePebbleListenerService() {
             return WatchProtocol.STATUS_ERROR
         }
 
-        val fileName = "recording-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.m4a"
-        val file = folder.createFile("audio/mp4", fileName)
+        val finalName = "recording-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.m4a"
+        // Record into a hidden dotfile so other apps watching the folder (a Syncthing sync, a
+        // file browser, Joplin's own folder scan, ...) don't pick up a partial/corrupt file
+        // mid-recording. There's no real cross-app file lock available over SAF - most apps
+        // (Syncthing included) don't honor advisory locks - so a naming convention every
+        // filesystem tool already understands is the reliable way to hide a WIP file. Renamed to
+        // the final visible name in stopRecording() once MediaRecorder has finalized it.
+        val tempName = ".$finalName"
+        val file = folder.createFile("audio/mp4", tempName)
         if (file == null) {
-            Log.w(TAG, "Failed to create $fileName in recording folder")
+            Log.w(TAG, "Failed to create $tempName in recording folder")
             return WatchProtocol.STATUS_ERROR
         }
 
@@ -138,6 +155,15 @@ class PebbleListenerService : BasePebbleListenerService() {
                 ?: error("openFileDescriptor returned null for ${file.uri}")
             outputFile = pfd
             recordingFile = file
+            finalRecordingName = finalName
+            // Captured now (where the recording started), not at stop time, so it heads into
+            // the transcript header if Gemini transcription is on. Best-effort - no location
+            // permission or fix available just means the header omits it.
+            recordingLocation = if (GeminiPrefs.isEnabled(this) && GeminiPrefs.isLocationEnabled(this)) {
+                getBestLastKnownLocation()
+            } else {
+                null
+            }
 
             recorder = MediaRecorder(this).apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -152,6 +178,7 @@ class PebbleListenerService : BasePebbleListenerService() {
             WatchProtocol.STATUS_RECORDING
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start recording", e)
+            file.delete()
             releaseRecorder()
             WatchProtocol.STATUS_ERROR
         }
@@ -194,10 +221,12 @@ class PebbleListenerService : BasePebbleListenerService() {
             return WatchProtocol.STATUS_IDLE
         }
         val finishedFile = recordingFile
+        val location = recordingLocation
         return try {
             recorder?.stop()
             if (finishedFile != null) {
-                transcribeIfEnabled(finishedFile)
+                revealFinishedRecording(finishedFile)
+                transcribeIfEnabled(finishedFile, location)
             }
             WatchProtocol.STATUS_IDLE
         } catch (e: Exception) {
@@ -205,6 +234,14 @@ class PebbleListenerService : BasePebbleListenerService() {
             WatchProtocol.STATUS_ERROR
         } finally {
             releaseRecorder()
+        }
+    }
+
+    /** Renames the hidden in-progress recording to its final visible name, now that it's done. */
+    private fun revealFinishedRecording(file: DocumentFile) {
+        val finalName = finalRecordingName ?: return
+        if (!file.renameTo(finalName)) {
+            Log.w(TAG, "Failed to rename ${file.name} to $finalName")
         }
     }
 
@@ -223,19 +260,24 @@ class PebbleListenerService : BasePebbleListenerService() {
         }
         outputFile = null
         recordingFile = null
+        finalRecordingName = null
+        recordingLocation = null
         isPaused = false
 
         promoteToArmed()
     }
 
-    private fun transcribeIfEnabled(audioFile: DocumentFile) {
+    private fun transcribeIfEnabled(audioFile: DocumentFile, location: Location?) {
         if (!GeminiPrefs.isEnabled(this)) {
             return
         }
         coroutineScope.launch {
             GeminiTranscriber.transcribe(this@PebbleListenerService, audioFile)
                 .onSuccess { transcript ->
-                    writeTranscript(audioFile, transcript)
+                    val locationTag = location?.let {
+                        runCatching { reverseGeocodeTag(it) }.getOrNull()
+                    }
+                    writeTranscript(audioFile, transcript, location, locationTag)
                     Log.d(TAG, "Transcribed ${audioFile.name}")
                 }
                 .onFailure { error ->
@@ -244,7 +286,7 @@ class PebbleListenerService : BasePebbleListenerService() {
         }
     }
 
-    private fun writeTranscript(audioFile: DocumentFile, transcript: String) {
+    private fun writeTranscript(audioFile: DocumentFile, transcript: String, location: Location?, locationTag: String?) {
         val parent = audioFile.parentFile
         val transcriptName = audioFile.name?.substringBeforeLast('.')?.plus(".md")
         if (parent == null || transcriptName == null) {
@@ -257,8 +299,74 @@ class PebbleListenerService : BasePebbleListenerService() {
             return
         }
         contentResolver.openOutputStream(transcriptFile.uri)?.use {
-            it.write(transcript.toByteArray(Charsets.UTF_8))
+            it.write(buildTranscriptMarkdown(transcript, location, locationTag).toByteArray(Charsets.UTF_8))
         }
+    }
+
+    private fun buildTranscriptMarkdown(transcript: String, location: Location?, locationTag: String?): String =
+        buildString {
+            append("---\n")
+            append("recorded: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}\n")
+            if (location != null) {
+                val lat = location.latitude
+                val lon = location.longitude
+                append("location: $lat, $lon\n")
+                append("maps: https://www.google.com/maps?q=$lat,$lon\n")
+            }
+            append("---\n\n")
+            if (locationTag != null) {
+                append(locationTag)
+                append("\n\n")
+            }
+            append(transcript)
+        }
+
+    /** Reverse-geocodes into a single hashtag, e.g. "#1600AmphitheatrePkwyMountainView". */
+    private suspend fun reverseGeocodeTag(location: Location): String? {
+        if (!Geocoder.isPresent()) {
+            return null
+        }
+        val addressLine = getFirstAddress(Geocoder(this, Locale.getDefault()), location)
+            ?.getAddressLine(0)
+            ?: return null
+        val tag = addressLine.filter { it.isLetterOrDigit() }
+        return tag.takeIf { it.isNotEmpty() }?.let { "#$it" }
+    }
+
+    private suspend fun getFirstAddress(geocoder: Geocoder, location: Location): Address? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return suspendCancellableCoroutine { continuation ->
+                geocoder.getFromLocation(location.latitude, location.longitude, 1) { addresses ->
+                    continuation.resume(addresses.firstOrNull())
+                }
+            }
+        }
+        @Suppress("DEPRECATION")
+        return withContext(Dispatchers.IO) {
+            runCatching { geocoder.getFromLocation(location.latitude, location.longitude, 1)?.firstOrNull() }
+                .getOrNull()
+        }
+    }
+
+    /**
+     * Best-effort, synchronous last-known location - no fresh GPS fix is requested, since that
+     * would need an async callback with a timeout for what's just supplementary metadata on a
+     * transcript. Returns null if location permission isn't granted or no provider has a cached
+     * fix yet.
+     */
+    private fun getBestLastKnownLocation(): Location? {
+        val hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) {
+            return null
+        }
+        val locationManager = getSystemService(LocationManager::class.java) ?: return null
+        return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+            .filter { runCatching { locationManager.isProviderEnabled(it) }.getOrDefault(false) }
+            .mapNotNull { provider -> runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull() }
+            .maxByOrNull { it.time }
     }
 
     private fun promoteToArmed() {
@@ -266,6 +374,7 @@ class PebbleListenerService : BasePebbleListenerService() {
             buildNotification(R.string.armed_notification_title),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
+        RecordingStatus.update(RecordingState.IDLE)
     }
 
     private fun promoteToRecording() {
@@ -273,6 +382,7 @@ class PebbleListenerService : BasePebbleListenerService() {
             buildNotification(R.string.recording_notification_title),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
+        RecordingStatus.update(RecordingState.RECORDING)
     }
 
     private fun promoteToPaused() {
@@ -280,6 +390,7 @@ class PebbleListenerService : BasePebbleListenerService() {
             buildNotification(R.string.paused_notification_title),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
+        RecordingStatus.update(RecordingState.PAUSED)
     }
 
     private fun startForegroundTyped(notification: Notification, type: Int) {
@@ -325,6 +436,7 @@ class PebbleListenerService : BasePebbleListenerService() {
     override fun onDestroy() {
         try {
             recorder?.stop()
+            recordingFile?.let(::revealFinishedRecording)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to stop recording during teardown", e)
         }

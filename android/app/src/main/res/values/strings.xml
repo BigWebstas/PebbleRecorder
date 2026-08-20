@@ -13,4 +13,14 @@
     <string name="version_label">Version %1$s</string>
     <string name="gemini_enabled_label">Transcribe recordings with Gemini</string>
     <string name="gemini_api_key_hint">Gemini API key</string>
+    <string name="gemini_location_label">Include location in transcripts</string>
+    <string name="location_permission_granted">Location permission: granted</string>
+    <string name="location_permission_missing">Location permission: not granted</string>
+    <string name="status_label">Status: %1$s</string>
+    <string name="status_idle">Idle</string>
+    <string name="status_recording">Recording</string>
+    <string name="status_paused">Paused</string>
+    <string name="install_watchapp_button">Install watchapp on watch</string>
+    <string name="install_watchapp_missing">No bundled watchapp found - rebuild the Android app after building watch/</string>
+    <string name="install_watchapp_no_handler">No app installed can open a .pbw file - is the Pebble/Core companion app installed?</string>
 </resources>

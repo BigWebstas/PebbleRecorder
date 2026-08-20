@@ -20,8 +20,8 @@ android {
         applicationId = "com.pebblerecorder.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 5
+        versionName = "0.1.4"
     }
 
     signingConfigs {
@@ -57,4 +57,18 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.pebblekit.client)
     implementation(libs.kotlinx.coroutines.android)
+}
+
+// Keeps assets/watch.pbw (bundled for the in-app "Install watchapp on watch" sideload button) in
+// sync with the sibling watch/ project's latest build output. Best-effort: if the watch app
+// hasn't been built (no watch/build/watch.pbw yet), this leaves whatever's already committed to
+// assets/ alone rather than failing the Android build.
+val syncWatchAppAsset = tasks.register<Copy>("syncWatchAppAsset") {
+    val source = rootProject.file("../watch/build/watch.pbw")
+    onlyIf { source.exists() }
+    from(source)
+    into("src/main/assets")
+}
+tasks.named("preBuild") {
+    dependsOn(syncWatchAppAsset)
 }
