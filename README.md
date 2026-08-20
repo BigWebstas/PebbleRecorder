@@ -83,3 +83,29 @@ android/  Android app (Kotlin) - does the actual recording
 ```
 
 See each directory's own docs for more detail on its build setup.
+
+## Changelog
+
+See the [Releases page](https://github.com/BigWebstas/PebbleRecorder/releases) for downloadable `.apk`/`.pbw` artifacts of each version.
+
+### [v0.1.4](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.4)
+- Optional location tagging in Gemini transcripts: a `location`/`maps` header line plus a reverse-geocoded `#AddressAsOneWord` hashtag.
+- Live "Status: Idle / Recording / Paused" indicator on the Android main screen.
+- Location permission status shown alongside the microphone permission line.
+- "Install watchapp on watch" button - hands the bundled `.pbw` to the Pebble/Core companion app directly.
+
+### [v0.1.3](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.3)
+- Pause/resume from the watch (UP or DOWN), with a red/blue background on color watches and a timer that pauses and resumes rather than resetting.
+- Optional Gemini transcription: finished recordings are transcribed and saved as a same-named `.md` file.
+- Tapping the persistent notification now reopens the app.
+
+### [v0.1.2](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.2)
+- Large mic icon on the Android main screen, matching the notification icon.
+- App version shown on both the Android main screen and the watch footer.
+
+### [v0.1.1](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.1)
+- Shortened the status text on the Android main screen.
+
+### [v0.1.0](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.0)
+- First working end-to-end release: watch button press → recording → AAC/M4A file in your chosen folder.
+- Idle/Recording state machine on the watch with a status icon and live elapsed-time timer.
