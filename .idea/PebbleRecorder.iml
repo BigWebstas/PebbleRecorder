@@ -8,6 +8,8 @@
       <excludeFolder url="file://$MODULE_DIR$/android/.gradle/9.6.1/expanded" />
       <excludeFolder url="file://$MODULE_DIR$/android/.gradle/9.6.1/vcsMetadata" />
       <excludeFolder url="file://$MODULE_DIR$/android/app/build" />
+      <excludeFolder url="file://$MODULE_DIR$/android/.gradle" />
+      <excludeFolder url="file://$MODULE_DIR$/dist" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
