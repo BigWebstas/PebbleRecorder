@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
@@ -29,14 +30,24 @@
           Bound by the Pebble/Core companion app whenever the PebbleRecorder watchapp
           (see watch/package.json for its UUID) is opened on a paired watch. Must stay
           registered under this exact action for PebbleKit Android 2 to find it.
+
+          Also self-started (specialUse type) by MainActivity as soon as the app is opened, and
+          kept running persistently as a low-priority "armed" foreground service from then on.
+          Android forbids starting a *new* microphone-type foreground service while the app has
+          no visible UI (see MainActivity's start call) - but adding the microphone type to an
+          *already-foregrounded* service is allowed, so recording only works because this service
+          is already in the foreground by the time a watch COMMAND arrives.
         -->
         <service
             android:name=".PebbleListenerService"
             android:exported="true"
-            android:foregroundServiceType="microphone">
+            android:foregroundServiceType="specialUse|microphone">
             <intent-filter>
                 <action android:name="io.rebble.pebblekit2.RECEIVE_DATA_FROM_WATCH" />
             </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="pebble_watch_trigger_listener" />
         </service>
 
     </application>

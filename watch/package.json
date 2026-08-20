@@ -36,7 +36,14 @@
       }
     },
     "resources": {
-      "media": []
+      "media": [
+        {
+          "type": "png",
+          "name": "ICON_MENU",
+          "file": "images/icon_menu.png",
+          "menuIcon": true
+        }
+      ]
     }
   }
 }

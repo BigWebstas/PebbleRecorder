@@ -57,21 +57,43 @@ app's `applicationId` (`com.pebblerecorder.app`), or the companion app will reje
 
 ## Status
 
+Verified end-to-end on real hardware (Pixel phone + Pebble Time 2 + the `coredevices.coreapp`
+companion app, over wireless adb): watch button press → `COMMAND` over AppMessage → companion app
+→ `PebbleListenerService` → real `MediaRecorder` capture into the SAF folder → `STATUS` reply back
+to the watch. Produces valid AAC/M4A files (confirmed with `ffprobe`).
+
 - `watch/`: full Idle/Starting/Recording/Stopping/Error state machine wired to AppMessage,
-  verified in the QEMU emulator (button presses via `pebble emu-button`, simulated phone replies
-  via `pebble send-app-message`).
-- `android/`: `PebbleListenerService` now does real work on `COMMAND_START`/`COMMAND_STOP` —
-  records AAC/M4A audio via `MediaRecorder` into a file created (via `DocumentFile`) in the
-  SAF folder the user picks in `MainActivity`, replying `STATUS_RECORDING`/`STATUS_IDLE`/`STATUS_ERROR`
-  accordingly. `MainActivity` requests `RECORD_AUDIO` (+ `POST_NOTIFICATIONS` on API 33+) on launch
-  and exposes a button for the `ACTION_OPEN_DOCUMENT_TREE` folder picker; the chosen tree URI is
-  persisted (`RecordingFolderPrefs`, backed by `SharedPreferences` + a persistable URI permission).
-  Because `PebbleListenerService` is only *bound* while the watchapp is open on the watch (see
-  above), it self-starts as a foreground service (`foregroundServiceType="microphone"`) for the
-  duration of a recording so capture survives the companion app unbinding it mid-recording.
-  Compile-verified only — no emulator/device is attached in this environment, so none of this has
-  been runtime-tested (mic permission flow, SAF folder picker, actual file output, or the
-  foreground-service-survives-unbind behavior).
+  verified both in the QEMU emulator and against a real watch.
+- `android/`: `PebbleListenerService` records AAC/M4A audio via `MediaRecorder` into a file
+  created (via `DocumentFile`) in the SAF folder the user picks in `MainActivity`, replying
+  `STATUS_RECORDING`/`STATUS_IDLE`/`STATUS_ERROR` accordingly. `MainActivity` requests
+  `RECORD_AUDIO` (+ `POST_NOTIFICATIONS` on API 33+) on launch, exposes the
+  `ACTION_OPEN_DOCUMENT_TREE` folder picker (persisted via `RecordingFolderPrefs`), and arms
+  `PebbleListenerService` as a persistent foreground service.
+
+  That last part matters: Android forbids starting a *new* microphone-type foreground service
+  while the app has no visible UI, which is exactly the state `PebbleListenerService` is in when a
+  watch `COMMAND` arrives via the AIDL bind (confirmed live - it throws
+  `ForegroundServiceStartNotAllowedException`). Adding the microphone type to an *already*
+  foregrounded service is allowed, though, so `MainActivity` arms `PebbleListenerService` at launch
+  with a permanent low-priority `specialUse`-type foreground service ("PebbleRecorder is armed for
+  the watch trigger" notification), and `COMMAND_START`/`COMMAND_STOP` just add/drop the
+  `microphone` type on that already-running instance. If `MainActivity` has never been opened since
+  the process started, recording will fail with `STATUS_ERROR`.
+
+### Known gotchas hit while getting this working
+
+- **`pebble build` can silently produce a stale `.pbw`.** An incremental build once skipped
+  regenerating `appinfo.json`, shipping a `.pbw` missing the `companionApp` block - the companion
+  app then silently drops inbound `AppMessage`s for the watchapp with no error on either side (logs
+  "Got inbound message" and nothing else). If watch→phone messages seem to vanish, `rm -rf
+  watch/build` and rebuild clean before assuming it's a code bug.
+- **`dict_write_int`'s width argument must match the actual variable size.** On
+  `arm-none-eabi-gcc` (ARM EABI), plain C enums default to the *smallest* type that fits their
+  values (e.g. 1 byte for `{STOP=0, START=1}`), not `int`. Passing `sizeof(int32_t)` as the width
+  while pointing at a narrower enum variable reads adjacent stack garbage into the outgoing
+  dictionary. Always copy into an explicit `int32_t` local first (see `prv_send_command` in
+  `watch/src/c/watch.c`).
 
 ## Commands
 

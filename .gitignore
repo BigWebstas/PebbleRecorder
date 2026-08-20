@@ -8,3 +8,9 @@ android/.gradle/
 android/**/build/
 android/*.iml
 android/.idea/
+android/keystore.properties
+*.jks
+*.keystore
+
+# Release artifacts
+dist/

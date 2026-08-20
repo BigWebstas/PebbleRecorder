@@ -41,6 +41,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         requestPermissions.launch(requiredPermissions())
+
+        // Arms PebbleListenerService as a persistent foreground service while we still have a
+        // visible UI - required so it can later add the microphone type when a watch COMMAND
+        // arrives, since Android forbids starting a *new* mic-type foreground service from the
+        // background. See PebbleListenerService's class doc for the full explanation.
+        ContextCompat.startForegroundService(this, Intent(this, PebbleListenerService::class.java))
     }
 
     override fun onResume() {

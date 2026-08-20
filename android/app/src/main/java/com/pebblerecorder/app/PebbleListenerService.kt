@@ -6,7 +6,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.media.MediaRecorder
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -31,10 +33,17 @@ private const val NOTIFICATION_ID = 1
 /**
  * Bound by the Pebble/Core companion app while the watch trigger app is open on a paired watch.
  *
+ * Also self-started by MainActivity as soon as the app is opened, and kept running persistently
+ * as a low-priority "armed" (specialUse type) foreground service from then on - this is required
+ * because Android forbids starting a *new* microphone-type foreground service while the app has
+ * no visible UI, which is exactly the state we're in when a watch COMMAND arrives via the AIDL
+ * bind. Adding the microphone type to an *already-foregrounded* service is allowed though, so as
+ * long as MainActivity has been opened at least once since the process started, COMMAND_START can
+ * promote this already-armed service to also hold the microphone type for the duration of the
+ * recording, then demote back to armed-only on COMMAND_STOP.
+ *
  * On COMMAND_START it writes AAC/M4A audio via MediaRecorder into a file created in the
- * user-chosen SAF folder (RecordingFolderPrefs). It self-starts as a foreground service for the
- * duration of the recording so capture survives the companion app unbinding this service (which
- * happens whenever the watchapp itself is closed on the watch, per onAppClosed below).
+ * user-chosen SAF folder (RecordingFolderPrefs).
  */
 class PebbleListenerService : BasePebbleListenerService() {
 
@@ -49,8 +58,8 @@ class PebbleListenerService : BasePebbleListenerService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification())
-        return START_NOT_STICKY
+        promoteToArmed()
+        return START_STICKY
     }
 
     override suspend fun onMessageReceived(
@@ -117,9 +126,7 @@ class PebbleListenerService : BasePebbleListenerService() {
             return WatchProtocol.STATUS_ERROR
         }
 
-        // Mark this already-bound service as "started" too, so it outlives the companion app
-        // unbinding it (e.g. when the watchapp is closed) for as long as recording is in progress.
-        ContextCompat.startForegroundService(this, Intent(this, PebbleListenerService::class.java))
+        promoteToRecording()
 
         return try {
             val pfd = contentResolver.openFileDescriptor(file.uri, "w")
@@ -174,8 +181,29 @@ class PebbleListenerService : BasePebbleListenerService() {
         }
         outputFile = null
 
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        promoteToArmed()
+    }
+
+    private fun promoteToArmed() {
+        startForegroundTyped(
+            buildNotification(recording = false),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+        )
+    }
+
+    private fun promoteToRecording() {
+        startForegroundTyped(
+            buildNotification(recording = true),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+        )
+    }
+
+    private fun startForegroundTyped(notification: Notification, type: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, type)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun createNotificationChannel() {
@@ -187,10 +215,14 @@ class PebbleListenerService : BasePebbleListenerService() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    private fun buildNotification(): Notification =
+    private fun buildNotification(recording: Boolean): Notification =
         NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(getString(R.string.recording_notification_title))
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(
+                getString(
+                    if (recording) R.string.recording_notification_title else R.string.armed_notification_title,
+                ),
+            )
+            .setSmallIcon(R.drawable.ic_mic)
             .setOngoing(true)
             .build()
 
@@ -203,9 +235,15 @@ class PebbleListenerService : BasePebbleListenerService() {
     }
 
     override fun onDestroy() {
-        if (recorder != null) {
-            stopRecording()
+        try {
+            recorder?.stop()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to stop recording during teardown", e)
         }
+        recorder?.release()
+        recorder = null
+        outputFile?.close()
+        outputFile = null
         sender.close()
         super.onDestroy()
     }

@@ -8,4 +8,5 @@
     <string name="folder_missing">Recording folder: not set — choose one below</string>
     <string name="recording_notification_channel_name">Recording</string>
     <string name="recording_notification_title">PebbleRecorder is recording</string>
+    <string name="armed_notification_title">PebbleRecorder is Idle</string>
 </resources>
