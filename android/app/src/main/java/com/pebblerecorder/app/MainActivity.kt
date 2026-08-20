@@ -39,6 +39,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.choose_folder_button).setOnClickListener {
             pickFolder.launch(null)
         }
+        findViewById<TextView>(R.id.version_text).text =
+            getString(R.string.version_label, packageManager.getPackageInfo(packageName, 0).versionName)
 
         requestPermissions.launch(requiredPermissions())
 

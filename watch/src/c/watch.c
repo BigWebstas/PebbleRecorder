@@ -1,5 +1,9 @@
 #include <pebble.h>
 
+// Pebble apps have no runtime API to read their own appinfo version, so this is kept in sync
+// with watch/package.json's "version" field by hand.
+#define APP_VERSION "1.0.1"
+
 // Values sent watch -> phone via MESSAGE_KEY_COMMAND.
 typedef enum {
   COMMAND_STOP = 0,
@@ -25,6 +29,7 @@ typedef enum {
 static Window *s_window;
 static TextLayer *s_status_layer;
 static TextLayer *s_timer_layer;
+static TextLayer *s_version_layer;
 static Layer *s_icon_layer;
 static AppState s_state = APP_STATE_NO_PHONE;
 static time_t s_recording_start_time;
@@ -179,12 +184,19 @@ static void prv_window_load(Window *window) {
   text_layer_set_font(s_timer_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
   layer_add_child(window_layer, text_layer_get_layer(s_timer_layer));
 
+  s_version_layer = text_layer_create(GRect(0, bounds.size.h - 20, bounds.size.w, 18));
+  text_layer_set_text_alignment(s_version_layer, GTextAlignmentCenter);
+  text_layer_set_font(s_version_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
+  text_layer_set_text(s_version_layer, "v" APP_VERSION);
+  layer_add_child(window_layer, text_layer_get_layer(s_version_layer));
+
   prv_set_state(connection_service_peek_pebble_app_connection() ? APP_STATE_IDLE : APP_STATE_NO_PHONE);
 }
 
 static void prv_window_unload(Window *window) {
   text_layer_destroy(s_status_layer);
   text_layer_destroy(s_timer_layer);
+  text_layer_destroy(s_version_layer);
   layer_destroy(s_icon_layer);
 }
 
