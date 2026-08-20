@@ -29,6 +29,14 @@ Pebble's SDK has never exposed raw mic/PCM access to third-party watchapps — t
 API is the cloud-based Dictation API (speech → text, not audio). So all recording logic lives on
 the phone; the watch is just a button.
 
+## Screenshots
+
+<p>
+  <img src="docs/screenshots/watch-idle.png" width="150" alt="Watch app, idle">
+  <img src="docs/screenshots/watch-recording.png" width="150" alt="Watch app, recording">
+  <img src="docs/screenshots/android-main.png" width="260" alt="Android app main screen">
+</p>
+
 ## Status
 
 Working end-to-end, verified on real hardware (a Pebble Time 2 and a Pixel phone): pressing the
