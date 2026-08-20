@@ -5,7 +5,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -42,6 +46,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.version_text).text =
             getString(R.string.version_label, packageManager.getPackageInfo(packageName, 0).versionName)
 
+        setUpGeminiSettings()
+
         requestPermissions.launch(requiredPermissions())
 
         // Arms PebbleListenerService as a persistent foreground service while we still have a
@@ -54,6 +60,27 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateStatus()
+    }
+
+    private fun setUpGeminiSettings() {
+        val enabledCheckbox = findViewById<CheckBox>(R.id.gemini_enabled_checkbox)
+        val apiKeyInput = findViewById<EditText>(R.id.gemini_api_key_input)
+
+        enabledCheckbox.isChecked = GeminiPrefs.isEnabled(this)
+        apiKeyInput.setText(GeminiPrefs.getApiKey(this))
+
+        enabledCheckbox.setOnCheckedChangeListener { _, isChecked ->
+            GeminiPrefs.setEnabled(this, isChecked)
+        }
+        apiKeyInput.addTextChangedListener(
+            object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) {
+                    GeminiPrefs.setApiKey(this@MainActivity, s?.toString().orEmpty())
+                }
+            },
+        )
     }
 
     private fun requiredPermissions(): Array<String> {

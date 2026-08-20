@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Applies on API < 31. Keeps the Gemini API key out of classic Auto Backup. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="gemini_prefs.xml" />
+</full-backup-content>

@@ -15,8 +15,11 @@ object WatchProtocol {
 
     const val COMMAND_STOP = 0
     const val COMMAND_START = 1
+    const val COMMAND_PAUSE = 2
+    const val COMMAND_RESUME = 3
 
     const val STATUS_IDLE = 0
     const val STATUS_RECORDING = 1
     const val STATUS_ERROR = 2
+    const val STATUS_PAUSED = 3
 }

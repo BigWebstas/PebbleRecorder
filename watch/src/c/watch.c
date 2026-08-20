@@ -2,12 +2,14 @@
 
 // Pebble apps have no runtime API to read their own appinfo version, so this is kept in sync
 // with watch/package.json's "version" field by hand.
-#define APP_VERSION "1.0.1"
+#define APP_VERSION "1.0.2"
 
 // Values sent watch -> phone via MESSAGE_KEY_COMMAND.
 typedef enum {
   COMMAND_STOP = 0,
   COMMAND_START = 1,
+  COMMAND_PAUSE = 2,
+  COMMAND_RESUME = 3,
 } Command;
 
 // Values received phone -> watch via MESSAGE_KEY_STATUS.
@@ -15,6 +17,7 @@ typedef enum {
   STATUS_IDLE = 0,
   STATUS_RECORDING = 1,
   STATUS_ERROR = 2,
+  STATUS_PAUSED = 3,
 } Status;
 
 typedef enum {
@@ -22,6 +25,9 @@ typedef enum {
   APP_STATE_STARTING,
   APP_STATE_RECORDING,
   APP_STATE_STOPPING,
+  APP_STATE_PAUSING,
+  APP_STATE_PAUSED,
+  APP_STATE_RESUMING,
   APP_STATE_ERROR,
   APP_STATE_NO_PHONE,
 } AppState;
@@ -33,16 +39,19 @@ static TextLayer *s_version_layer;
 static Layer *s_icon_layer;
 static AppState s_state = APP_STATE_NO_PHONE;
 static time_t s_recording_start_time;
+static time_t s_pause_started_at; // 0 when not currently paused
 static char s_timer_buffer[12];
+static GColor s_icon_color;
 
 // Draws a mic icon by default, swapping to a record (filled circle) icon while actively
-// recording and a stop (filled square) icon while idle (ready to start).
+// recording, a stop (filled square) icon while idle (ready to start), and a pause (two bars)
+// icon while paused.
 static void prv_icon_layer_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   GPoint center = grect_center_point(&bounds);
 
-  graphics_context_set_fill_color(ctx, GColorBlack);
-  graphics_context_set_stroke_color(ctx, GColorBlack);
+  graphics_context_set_fill_color(ctx, s_icon_color);
+  graphics_context_set_stroke_color(ctx, s_icon_color);
   graphics_context_set_stroke_width(ctx, 3);
 
   switch (s_state) {
@@ -51,6 +60,10 @@ static void prv_icon_layer_update_proc(Layer *layer, GContext *ctx) {
       break;
     case APP_STATE_IDLE:
       graphics_fill_rect(ctx, GRect(center.x - 14, center.y - 14, 28, 28), 0, GCornerNone);
+      break;
+    case APP_STATE_PAUSED:
+      graphics_fill_rect(ctx, GRect(center.x - 14, center.y - 14, 10, 28), 0, GCornerNone);
+      graphics_fill_rect(ctx, GRect(center.x + 4, center.y - 14, 10, 28), 0, GCornerNone);
       break;
     default: {
       GRect mic_head = GRect(center.x - 7, center.y - 18, 14, 22);
@@ -84,20 +97,75 @@ static void prv_set_state(AppState state) {
     case APP_STATE_STARTING:  label = "Starting...";  break;
     case APP_STATE_RECORDING: label = "Recording";   break;
     case APP_STATE_STOPPING:  label = "Stopping...";  break;
+    case APP_STATE_PAUSING:   label = "Pausing...";  break;
+    case APP_STATE_PAUSED:    label = "Paused";      break;
+    case APP_STATE_RESUMING:  label = "Resuming...";  break;
     case APP_STATE_ERROR:     label = "Error";       break;
     case APP_STATE_NO_PHONE:  label = "No Phone";    break;
     default:                  label = "?";           break;
   }
   text_layer_set_text(s_status_layer, label);
+
+  // Color platforms turn red while recording and blue while paused; B&W platforms can't
+  // represent either, so they keep the default white background and rely on the text label.
+  GColor background;
+  switch (state) {
+    case APP_STATE_RECORDING: background = PBL_IF_COLOR_ELSE(GColorRed, GColorWhite); break;
+    case APP_STATE_PAUSED:    background = PBL_IF_COLOR_ELSE(GColorBlue, GColorWhite); break;
+    default:                  background = GColorWhite; break;
+  }
+  window_set_background_color(s_window, background);
+
+  bool light_foreground = PBL_IF_COLOR_ELSE(
+    state == APP_STATE_RECORDING || state == APP_STATE_PAUSED, false);
+  GColor foreground = light_foreground ? GColorWhite : GColorBlack;
+  s_icon_color = foreground;
+  text_layer_set_text_color(s_status_layer, foreground);
+  text_layer_set_text_color(s_timer_layer, foreground);
+  text_layer_set_text_color(s_version_layer, foreground);
   layer_mark_dirty(s_icon_layer);
 
   tick_timer_service_unsubscribe();
-  if (state == APP_STATE_RECORDING) {
-    s_recording_start_time = time(NULL);
-    prv_update_timer_text();
-    tick_timer_service_subscribe(SECOND_UNIT, prv_tick_handler);
-  } else {
-    text_layer_set_text(s_timer_layer, "");
+  switch (state) {
+    case APP_STATE_RECORDING:
+      if (s_pause_started_at != 0) {
+        // Resuming: shift the start time forward by however long we were paused, so the
+        // elapsed timer continues from where it left off instead of jumping or resetting.
+        s_recording_start_time += time(NULL) - s_pause_started_at;
+        s_pause_started_at = 0;
+      } else {
+        s_recording_start_time = time(NULL);
+      }
+      prv_update_timer_text();
+      tick_timer_service_subscribe(SECOND_UNIT, prv_tick_handler);
+      break;
+    case APP_STATE_PAUSING:
+      // Still actually recording until the phone confirms the pause.
+      prv_update_timer_text();
+      tick_timer_service_subscribe(SECOND_UNIT, prv_tick_handler);
+      break;
+    case APP_STATE_PAUSED:
+      if (s_pause_started_at == 0) {
+        s_pause_started_at = time(NULL);
+      }
+      break;
+    case APP_STATE_RESUMING:
+      // Still paused until the phone confirms the resume; leave the frozen value as-is.
+      break;
+    default:
+      s_pause_started_at = 0;
+      text_layer_set_text(s_timer_layer, "");
+      break;
+  }
+}
+
+static AppState prv_pending_state_for_command(Command command) {
+  switch (command) {
+    case COMMAND_START:  return APP_STATE_STARTING;
+    case COMMAND_STOP:   return APP_STATE_STOPPING;
+    case COMMAND_PAUSE:  return APP_STATE_PAUSING;
+    case COMMAND_RESUME: return APP_STATE_RESUMING;
+    default:              return APP_STATE_ERROR;
   }
 }
 
@@ -117,20 +185,31 @@ static void prv_send_command(Command command) {
     return;
   }
 
-  prv_set_state(command == COMMAND_START ? APP_STATE_STARTING : APP_STATE_STOPPING);
+  prv_set_state(prv_pending_state_for_command(command));
 }
 
 static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
-  if (s_state == APP_STATE_RECORDING) {
+  if (s_state == APP_STATE_RECORDING || s_state == APP_STATE_PAUSED) {
     prv_send_command(COMMAND_STOP);
   } else if (s_state == APP_STATE_IDLE || s_state == APP_STATE_ERROR) {
     prv_send_command(COMMAND_START);
   }
-  // Ignore presses while STARTING/STOPPING (waiting on phone) or NO_PHONE.
+  // Ignore presses while STARTING/STOPPING/PAUSING/RESUMING (waiting on phone) or NO_PHONE.
+}
+
+static void prv_pause_resume_click_handler(ClickRecognizerRef recognizer, void *context) {
+  if (s_state == APP_STATE_RECORDING) {
+    prv_send_command(COMMAND_PAUSE);
+  } else if (s_state == APP_STATE_PAUSED) {
+    prv_send_command(COMMAND_RESUME);
+  }
+  // Ignore presses in any other state.
 }
 
 static void prv_click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, prv_select_click_handler);
+  window_single_click_subscribe(BUTTON_ID_UP, prv_pause_resume_click_handler);
+  window_single_click_subscribe(BUTTON_ID_DOWN, prv_pause_resume_click_handler);
 }
 
 static void prv_inbox_received_handler(DictionaryIterator *iterator, void *context) {
@@ -145,6 +224,10 @@ static void prv_inbox_received_handler(DictionaryIterator *iterator, void *conte
       break;
     case STATUS_RECORDING:
       prv_set_state(APP_STATE_RECORDING);
+      vibes_short_pulse();
+      break;
+    case STATUS_PAUSED:
+      prv_set_state(APP_STATE_PAUSED);
       vibes_short_pulse();
       break;
     case STATUS_ERROR:
@@ -177,16 +260,19 @@ static void prv_window_load(Window *window) {
   s_status_layer = text_layer_create(GRect(0, 72, bounds.size.w, 20));
   text_layer_set_text_alignment(s_status_layer, GTextAlignmentCenter);
   text_layer_set_font(s_status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+  text_layer_set_background_color(s_status_layer, GColorClear);
   layer_add_child(window_layer, text_layer_get_layer(s_status_layer));
 
   s_timer_layer = text_layer_create(GRect(0, 96, bounds.size.w, 20));
   text_layer_set_text_alignment(s_timer_layer, GTextAlignmentCenter);
   text_layer_set_font(s_timer_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
+  text_layer_set_background_color(s_timer_layer, GColorClear);
   layer_add_child(window_layer, text_layer_get_layer(s_timer_layer));
 
   s_version_layer = text_layer_create(GRect(0, bounds.size.h - 20, bounds.size.w, 18));
   text_layer_set_text_alignment(s_version_layer, GTextAlignmentCenter);
   text_layer_set_font(s_version_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
+  text_layer_set_background_color(s_version_layer, GColorClear);
   text_layer_set_text(s_version_layer, "v" APP_VERSION);
   layer_add_child(window_layer, text_layer_get_layer(s_version_layer));
 

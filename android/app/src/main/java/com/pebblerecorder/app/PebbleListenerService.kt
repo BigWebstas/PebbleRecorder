@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
@@ -50,6 +51,8 @@ class PebbleListenerService : BasePebbleListenerService() {
     private lateinit var sender: DefaultPebbleSender
     private var recorder: MediaRecorder? = null
     private var outputFile: ParcelFileDescriptor? = null
+    private var recordingFile: DocumentFile? = null
+    private var isPaused = false
 
     override fun onCreate() {
         super.onCreate()
@@ -82,6 +85,8 @@ class PebbleListenerService : BasePebbleListenerService() {
         val replyStatus = when (command) {
             WatchProtocol.COMMAND_START -> startRecording()
             WatchProtocol.COMMAND_STOP -> stopRecording()
+            WatchProtocol.COMMAND_PAUSE -> pauseRecording()
+            WatchProtocol.COMMAND_RESUME -> resumeRecording()
             else -> WatchProtocol.STATUS_ERROR
         }
         replyToWatch(replyStatus, watch)
@@ -132,6 +137,7 @@ class PebbleListenerService : BasePebbleListenerService() {
             val pfd = contentResolver.openFileDescriptor(file.uri, "w")
                 ?: error("openFileDescriptor returned null for ${file.uri}")
             outputFile = pfd
+            recordingFile = file
 
             recorder = MediaRecorder(this).apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -151,12 +157,48 @@ class PebbleListenerService : BasePebbleListenerService() {
         }
     }
 
+    private fun pauseRecording(): Int {
+        val activeRecorder = recorder ?: return WatchProtocol.STATUS_ERROR
+        if (isPaused) {
+            return WatchProtocol.STATUS_PAUSED
+        }
+        return try {
+            activeRecorder.pause()
+            isPaused = true
+            promoteToPaused()
+            WatchProtocol.STATUS_PAUSED
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to pause recording", e)
+            WatchProtocol.STATUS_ERROR
+        }
+    }
+
+    private fun resumeRecording(): Int {
+        val activeRecorder = recorder
+        if (activeRecorder == null || !isPaused) {
+            return WatchProtocol.STATUS_ERROR
+        }
+        return try {
+            activeRecorder.resume()
+            isPaused = false
+            promoteToRecording()
+            WatchProtocol.STATUS_RECORDING
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to resume recording", e)
+            WatchProtocol.STATUS_ERROR
+        }
+    }
+
     private fun stopRecording(): Int {
         if (recorder == null) {
             return WatchProtocol.STATUS_IDLE
         }
+        val finishedFile = recordingFile
         return try {
             recorder?.stop()
+            if (finishedFile != null) {
+                transcribeIfEnabled(finishedFile)
+            }
             WatchProtocol.STATUS_IDLE
         } catch (e: Exception) {
             Log.e(TAG, "Failed to stop recording cleanly", e)
@@ -180,20 +222,62 @@ class PebbleListenerService : BasePebbleListenerService() {
             Log.w(TAG, "Failed to close output file descriptor", e)
         }
         outputFile = null
+        recordingFile = null
+        isPaused = false
 
         promoteToArmed()
     }
 
+    private fun transcribeIfEnabled(audioFile: DocumentFile) {
+        if (!GeminiPrefs.isEnabled(this)) {
+            return
+        }
+        coroutineScope.launch {
+            GeminiTranscriber.transcribe(this@PebbleListenerService, audioFile)
+                .onSuccess { transcript ->
+                    writeTranscript(audioFile, transcript)
+                    Log.d(TAG, "Transcribed ${audioFile.name}")
+                }
+                .onFailure { error ->
+                    Log.e(TAG, "Failed to transcribe ${audioFile.name}", error)
+                }
+        }
+    }
+
+    private fun writeTranscript(audioFile: DocumentFile, transcript: String) {
+        val parent = audioFile.parentFile
+        val transcriptName = audioFile.name?.substringBeforeLast('.')?.plus(".md")
+        if (parent == null || transcriptName == null) {
+            Log.w(TAG, "Could not resolve transcript path for ${audioFile.name}")
+            return
+        }
+        val transcriptFile = parent.createFile("text/markdown", transcriptName)
+        if (transcriptFile == null) {
+            Log.w(TAG, "Failed to create $transcriptName")
+            return
+        }
+        contentResolver.openOutputStream(transcriptFile.uri)?.use {
+            it.write(transcript.toByteArray(Charsets.UTF_8))
+        }
+    }
+
     private fun promoteToArmed() {
         startForegroundTyped(
-            buildNotification(recording = false),
+            buildNotification(R.string.armed_notification_title),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
     }
 
     private fun promoteToRecording() {
         startForegroundTyped(
-            buildNotification(recording = true),
+            buildNotification(R.string.recording_notification_title),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+        )
+    }
+
+    private fun promoteToPaused() {
+        startForegroundTyped(
+            buildNotification(R.string.paused_notification_title),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
     }
@@ -215,15 +299,19 @@ class PebbleListenerService : BasePebbleListenerService() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    private fun buildNotification(recording: Boolean): Notification =
+    private fun buildNotification(titleRes: Int): Notification =
         NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(
-                getString(
-                    if (recording) R.string.recording_notification_title else R.string.armed_notification_title,
-                ),
-            )
+            .setContentTitle(getString(titleRes))
             .setSmallIcon(R.drawable.ic_mic)
             .setOngoing(true)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    this,
+                    0,
+                    Intent(this, MainActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
             .build()
 
     override fun onAppOpened(watchappUUID: UUID, watch: WatchIdentifier) {

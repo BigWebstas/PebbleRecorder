@@ -27,6 +27,23 @@
         android:layout_marginTop="16dp"
         android:text="@string/choose_folder_button" />
 
+    <CheckBox
+        android:id="@+id/gemini_enabled_checkbox"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="@string/gemini_enabled_label" />
+
+    <EditText
+        android:id="@+id/gemini_api_key_input"
+        android:layout_width="260dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:autofillHints=""
+        android:hint="@string/gemini_api_key_hint"
+        android:importantForAutofill="no"
+        android:inputType="textPassword" />
+
     <TextView
         android:id="@+id/version_text"
         android:layout_width="wrap_content"

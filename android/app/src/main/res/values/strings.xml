@@ -9,5 +9,8 @@
     <string name="recording_notification_channel_name">Recording</string>
     <string name="recording_notification_title">PebbleRecorder is recording</string>
     <string name="armed_notification_title">PebbleRecorder is Idle</string>
+    <string name="paused_notification_title">PebbleRecorder is paused</string>
     <string name="version_label">Version %1$s</string>
+    <string name="gemini_enabled_label">Transcribe recordings with Gemini</string>
+    <string name="gemini_api_key_hint">Gemini API key</string>
 </resources>
