@@ -1,4 +1,11 @@
 <resources>
     <string name="app_name">PebbleRecorder</string>
     <string name="main_status_text">PebbleRecorder is listening for the watch trigger in the background. Open the watchapp on your paired Pebble to send a start/stop command.</string>
+    <string name="choose_folder_button">Choose recording folder</string>
+    <string name="mic_permission_granted">Microphone permission: granted</string>
+    <string name="mic_permission_missing">Microphone permission: not granted — tap allow when prompted</string>
+    <string name="folder_selected">Recording folder: %1$s</string>
+    <string name="folder_missing">Recording folder: not set — choose one below</string>
+    <string name="recording_notification_channel_name">Recording</string>
+    <string name="recording_notification_title">PebbleRecorder is recording</string>
 </resources>

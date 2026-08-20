@@ -57,14 +57,21 @@ app's `applicationId` (`com.pebblerecorder.app`), or the companion app will reje
 
 ## Status
 
-Both sides are skeletons, verified to build/run but not yet doing real work:
-
 - `watch/`: full Idle/Starting/Recording/Stopping/Error state machine wired to AppMessage,
   verified in the QEMU emulator (button presses via `pebble emu-button`, simulated phone replies
   via `pebble send-app-message`).
-- `android/`: `PebbleListenerService` logs incoming `COMMAND`s and echoes a **stub** `STATUS`
-  reply (no `MediaRecorder`, no file writing yet). Compile-verified only — no emulator/device is
-  attached in this environment, so the receive path hasn't been runtime-tested.
+- `android/`: `PebbleListenerService` now does real work on `COMMAND_START`/`COMMAND_STOP` —
+  records AAC/M4A audio via `MediaRecorder` into a file created (via `DocumentFile`) in the
+  SAF folder the user picks in `MainActivity`, replying `STATUS_RECORDING`/`STATUS_IDLE`/`STATUS_ERROR`
+  accordingly. `MainActivity` requests `RECORD_AUDIO` (+ `POST_NOTIFICATIONS` on API 33+) on launch
+  and exposes a button for the `ACTION_OPEN_DOCUMENT_TREE` folder picker; the chosen tree URI is
+  persisted (`RecordingFolderPrefs`, backed by `SharedPreferences` + a persistable URI permission).
+  Because `PebbleListenerService` is only *bound* while the watchapp is open on the watch (see
+  above), it self-starts as a foreground service (`foregroundServiceType="microphone"`) for the
+  duration of a recording so capture survives the companion app unbinding it mid-recording.
+  Compile-verified only — no emulator/device is attached in this environment, so none of this has
+  been runtime-tested (mic permission flow, SAF folder picker, actual file output, or the
+  foreground-service-survives-unbind behavior).
 
 ## Commands
 

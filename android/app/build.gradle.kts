@@ -31,6 +31,7 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.documentfile)
     implementation(libs.pebblekit.client)
     implementation(libs.kotlinx.coroutines.android)
 }
