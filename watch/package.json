@@ -26,6 +26,15 @@
       "COMMAND",
       "STATUS"
     ],
+    "companionApp": {
+      "android": {
+        "apps": [
+          {
+            "package": "com.pebblerecorder.app"
+          }
+        ]
+      }
+    },
     "resources": {
       "media": []
     }
