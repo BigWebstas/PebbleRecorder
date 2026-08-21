@@ -89,6 +89,9 @@ See each directory's own docs for more detail on its build setup.
 
 See the [Releases page](https://github.com/BigWebstas/PebbleRecorder/releases) for downloadable `.apk`/`.pbw` artifacts of each version.
 
+### [v0.1.7](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.7)
+- The app now re-arms itself after a phone reboot and posts a notification prompting a single tap to fully re-enable the watch trigger, instead of requiring you to dig into the app to find it.
+
 ### [v0.1.6](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.6)
 - Fixed the location tag sometimes being missing from Gemini transcripts - the app now also requests a fresh GPS/network fix in the background instead of relying only on a cached last-known location.
 - Fixed Gemini sometimes returning an empty transcript on short recordings.
