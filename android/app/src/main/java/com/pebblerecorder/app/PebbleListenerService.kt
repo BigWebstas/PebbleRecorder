@@ -59,8 +59,7 @@ class PebbleListenerService : BasePebbleListenerService() {
     private lateinit var sender: DefaultPebbleSender
     private var recorder: MediaRecorder? = null
     private var outputFile: ParcelFileDescriptor? = null
-    private var recordingFile: DocumentFile? = null
-    private var finalRecordingName: String? = null
+    private var recordingTarget: RecordingTarget? = null
     private var recordingLocation: Location? = null
     private var isPaused = false
 
@@ -128,34 +127,20 @@ class PebbleListenerService : BasePebbleListenerService() {
             return WatchProtocol.STATUS_ERROR
         }
 
-        val folder = RecordingFolderPrefs.get(this)?.let { DocumentFile.fromTreeUri(this, it) }
-        if (folder == null || !folder.canWrite()) {
-            Log.w(TAG, "No writable recording folder configured")
+        val finalName = "recording-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}-rec.m4a"
+        val target = createRecordingTarget(finalName)
+        if (target == null) {
+            Log.w(TAG, "Failed to create $finalName - no writable folder configured and no Downloads fallback")
             return WatchProtocol.STATUS_ERROR
         }
-
-        val finalName = "recording-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.m4a"
-        // Record into a hidden dotfile so other apps watching the folder (a Syncthing sync, a
-        // file browser, Joplin's own folder scan, ...) don't pick up a partial/corrupt file
-        // mid-recording. There's no real cross-app file lock available over SAF - most apps
-        // (Syncthing included) don't honor advisory locks - so a naming convention every
-        // filesystem tool already understands is the reliable way to hide a WIP file. Renamed to
-        // the final visible name in stopRecording() once MediaRecorder has finalized it.
-        val tempName = ".$finalName"
-        val file = folder.createFile("audio/mp4", tempName)
-        if (file == null) {
-            Log.w(TAG, "Failed to create $tempName in recording folder")
-            return WatchProtocol.STATUS_ERROR
-        }
-
-        promoteToRecording()
 
         return try {
-            val pfd = contentResolver.openFileDescriptor(file.uri, "w")
-                ?: error("openFileDescriptor returned null for ${file.uri}")
+            promoteToRecording()
+
+            val pfd = contentResolver.openFileDescriptor(target.uri, "w")
+                ?: error("openFileDescriptor returned null for ${target.uri}")
             outputFile = pfd
-            recordingFile = file
-            finalRecordingName = finalName
+            recordingTarget = target
             // Captured now (where the recording started), not at stop time, so it heads into
             // the transcript header if Gemini transcription is on. Best-effort - no location
             // permission or fix available just means the header omits it.
@@ -174,14 +159,48 @@ class PebbleListenerService : BasePebbleListenerService() {
                 start()
             }
 
-            Log.d(TAG, "Recording started: ${file.uri}")
+            Log.d(TAG, "Recording started: ${target.uri}")
             WatchProtocol.STATUS_RECORDING
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start recording", e)
-            file.delete()
+            target.delete(this)
             releaseRecorder()
             WatchProtocol.STATUS_ERROR
         }
+    }
+
+    /**
+     * Prefers the user-chosen SAF folder (RecordingFolderPrefs); falls back to the public
+     * Downloads/PebbleRecorder folder via MediaStore if none is set (or it's no longer writable -
+     * e.g. the user revoked the permission), so recording works before anyone's opened the app's
+     * settings. MediaStore.Downloads only exists on API 29+; below that, a missing folder is just
+     * an error, same as before this fallback existed.
+     */
+    private fun createRecordingTarget(finalName: String): RecordingTarget? {
+        val folderUri = RecordingFolderPrefs.get(this)
+        if (folderUri != null) {
+            val folder = DocumentFile.fromTreeUri(this, folderUri)
+            if (folder != null && folder.canWrite()) {
+                // Record into a hidden dotfile so other apps watching the folder (a Syncthing
+                // sync, a file browser, Joplin's own folder scan, ...) don't pick up a
+                // partial/corrupt file mid-recording. There's no real cross-app file lock
+                // available over SAF - most apps (Syncthing included) don't honor advisory locks
+                // - so a naming convention every filesystem tool already understands is the
+                // reliable way to hide a WIP file. Revealed (renamed) once MediaRecorder finishes.
+                val file = folder.createFile("audio/mp4", ".$finalName")
+                if (file != null) {
+                    return RecordingTarget.Saf(file, finalName)
+                }
+                Log.w(TAG, "Failed to create .$finalName in configured recording folder")
+            } else {
+                Log.w(TAG, "Configured recording folder is not writable, falling back to Downloads")
+            }
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return null
+        }
+        return createDownloadsRecordingTarget(this, finalName)
     }
 
     private fun pauseRecording(): Int {
@@ -220,13 +239,13 @@ class PebbleListenerService : BasePebbleListenerService() {
         if (recorder == null) {
             return WatchProtocol.STATUS_IDLE
         }
-        val finishedFile = recordingFile
+        val finishedTarget = recordingTarget
         val location = recordingLocation
         return try {
             recorder?.stop()
-            if (finishedFile != null) {
-                revealFinishedRecording(finishedFile)
-                transcribeIfEnabled(finishedFile, location)
+            if (finishedTarget != null) {
+                finishedTarget.finalize(this)
+                transcribeIfEnabled(finishedTarget, location)
             }
             WatchProtocol.STATUS_IDLE
         } catch (e: Exception) {
@@ -234,14 +253,6 @@ class PebbleListenerService : BasePebbleListenerService() {
             WatchProtocol.STATUS_ERROR
         } finally {
             releaseRecorder()
-        }
-    }
-
-    /** Renames the hidden in-progress recording to its final visible name, now that it's done. */
-    private fun revealFinishedRecording(file: DocumentFile) {
-        val finalName = finalRecordingName ?: return
-        if (!file.renameTo(finalName)) {
-            Log.w(TAG, "Failed to rename ${file.name} to $finalName")
         }
     }
 
@@ -259,46 +270,40 @@ class PebbleListenerService : BasePebbleListenerService() {
             Log.w(TAG, "Failed to close output file descriptor", e)
         }
         outputFile = null
-        recordingFile = null
-        finalRecordingName = null
+        recordingTarget = null
         recordingLocation = null
         isPaused = false
 
         promoteToArmed()
     }
 
-    private fun transcribeIfEnabled(audioFile: DocumentFile, location: Location?) {
+    private fun transcribeIfEnabled(target: RecordingTarget, location: Location?) {
         if (!GeminiPrefs.isEnabled(this)) {
             return
         }
         coroutineScope.launch {
-            GeminiTranscriber.transcribe(this@PebbleListenerService, audioFile)
+            GeminiTranscriber.transcribe(this@PebbleListenerService, target.uri)
                 .onSuccess { transcript ->
                     val locationTag = location?.let {
                         runCatching { reverseGeocodeTag(it) }.getOrNull()
                     }
-                    writeTranscript(audioFile, transcript, location, locationTag)
-                    Log.d(TAG, "Transcribed ${audioFile.name}")
+                    writeTranscript(target, transcript, location, locationTag)
+                    Log.d(TAG, "Transcribed ${target.displayName}")
                 }
                 .onFailure { error ->
-                    Log.e(TAG, "Failed to transcribe ${audioFile.name}", error)
+                    Log.e(TAG, "Failed to transcribe ${target.displayName}", error)
                 }
         }
     }
 
-    private fun writeTranscript(audioFile: DocumentFile, transcript: String, location: Location?, locationTag: String?) {
-        val parent = audioFile.parentFile
-        val transcriptName = audioFile.name?.substringBeforeLast('.')?.plus(".md")
-        if (parent == null || transcriptName == null) {
-            Log.w(TAG, "Could not resolve transcript path for ${audioFile.name}")
-            return
-        }
-        val transcriptFile = parent.createFile("text/markdown", transcriptName)
-        if (transcriptFile == null) {
+    private fun writeTranscript(target: RecordingTarget, transcript: String, location: Location?, locationTag: String?) {
+        val transcriptName = target.displayName.substringBeforeLast('.').removeSuffix("-rec").plus("-txt.md")
+        val transcriptUri = target.createSibling(this, transcriptName, "text/markdown")
+        if (transcriptUri == null) {
             Log.w(TAG, "Failed to create $transcriptName")
             return
         }
-        contentResolver.openOutputStream(transcriptFile.uri)?.use {
+        contentResolver.openOutputStream(transcriptUri)?.use {
             it.write(buildTranscriptMarkdown(transcript, location, locationTag).toByteArray(Charsets.UTF_8))
         }
     }
@@ -436,7 +441,7 @@ class PebbleListenerService : BasePebbleListenerService() {
     override fun onDestroy() {
         try {
             recorder?.stop()
-            recordingFile?.let(::revealFinishedRecording)
+            recordingTarget?.finalize(this)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to stop recording during teardown", e)
         }

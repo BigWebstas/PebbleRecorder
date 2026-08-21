@@ -1,9 +1,9 @@
 package com.pebblerecorder.app
 
 import android.content.Context
+import android.net.Uri
 import android.util.Base64
 import android.util.Log
-import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -25,13 +25,13 @@ private const val MAX_INLINE_AUDIO_BYTES = 19 * 1024 * 1024
 /** Sends a recorded file to the Gemini API and returns the transcript, or a failure with details. */
 object GeminiTranscriber {
 
-    suspend fun transcribe(context: Context, audioFile: DocumentFile): Result<String> =
+    suspend fun transcribe(context: Context, audioUri: Uri): Result<String> =
         withContext(Dispatchers.IO) {
             try {
                 val apiKey = GeminiPrefs.getApiKey(context)
                     ?: return@withContext Result.failure(IllegalStateException("No Gemini API key configured"))
 
-                val audioBytes = context.contentResolver.openInputStream(audioFile.uri)?.use { it.readBytes() }
+                val audioBytes = context.contentResolver.openInputStream(audioUri)?.use { it.readBytes() }
                     ?: return@withContext Result.failure(IllegalStateException("Could not read recording"))
 
                 if (audioBytes.size > MAX_INLINE_AUDIO_BYTES) {
@@ -67,7 +67,14 @@ object GeminiTranscriber {
         )
         val textPart = JSONObject().put("text", "Transcribe this audio recording accurately.")
         val content = JSONObject().put("parts", JSONArray().put(textPart).put(part))
-        return JSONObject().put("contents", JSONArray().put(content)).toString()
+        // Plain transcription needs no reasoning - without this, thinking models can burn their
+        // whole token budget on internal "thoughts" and return empty content (finishReason=STOP,
+        // zero output tokens).
+        val generationConfig = JSONObject().put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+        return JSONObject()
+            .put("contents", JSONArray().put(content))
+            .put("generationConfig", generationConfig)
+            .toString()
     }
 
     private fun postToGemini(apiKey: String, requestBody: String): Pair<Int, String> {
@@ -92,11 +99,15 @@ object GeminiTranscriber {
     }
 
     private fun extractTranscript(responseBody: String): String =
-        JSONObject(responseBody)
-            .getJSONArray("candidates")
-            .getJSONObject(0)
-            .getJSONObject("content")
-            .getJSONArray("parts")
-            .getJSONObject(0)
-            .getString("text")
+        try {
+            JSONObject(responseBody)
+                .getJSONArray("candidates")
+                .getJSONObject(0)
+                .getJSONObject("content")
+                .getJSONArray("parts")
+                .getJSONObject(0)
+                .getString("text")
+        } catch (e: Exception) {
+            throw IllegalStateException("Unexpected Gemini response shape: $responseBody", e)
+        }
 }

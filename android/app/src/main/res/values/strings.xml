@@ -5,7 +5,7 @@
     <string name="mic_permission_granted">Microphone permission: granted</string>
     <string name="mic_permission_missing">Microphone permission: not granted — tap allow when prompted</string>
     <string name="folder_selected">Recording folder: %1$s</string>
-    <string name="folder_missing">Recording folder: not set — choose one below</string>
+    <string name="folder_missing">Recording folder: Downloads/PebbleRecorder (default) — choose a folder below to change it</string>
     <string name="recording_notification_channel_name">Recording</string>
     <string name="recording_notification_title">PebbleRecorder is recording</string>
     <string name="armed_notification_title">PebbleRecorder is Idle</string>
@@ -20,7 +20,7 @@
     <string name="status_idle">Idle</string>
     <string name="status_recording">Recording</string>
     <string name="status_paused">Paused</string>
-    <string name="install_watchapp_button">Install watchapp on watch</string>
+    <string name="install_watchapp_button">Install the app on Pebble</string>
     <string name="install_watchapp_missing">No bundled watchapp found - rebuild the Android app after building watch/</string>
     <string name="install_watchapp_no_handler">No app installed can open a .pbw file - is the Pebble/Core companion app installed?</string>
 </resources>
