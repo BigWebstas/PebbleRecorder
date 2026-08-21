@@ -89,6 +89,11 @@ See each directory's own docs for more detail on its build setup.
 
 See the [Releases page](https://github.com/BigWebstas/PebbleRecorder/releases) for downloadable `.apk`/`.pbw` artifacts of each version.
 
+### [v0.1.6](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.6)
+- Fixed the location tag sometimes being missing from Gemini transcripts - the app now also requests a fresh GPS/network fix in the background instead of relying only on a cached last-known location.
+- Fixed Gemini sometimes returning an empty transcript on short recordings.
+- A chosen recording folder no longer silently reappears after an uninstall/reinstall (it's now excluded from Android backup, matching the Gemini API key).
+
 ### [v0.1.5](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.5)
 - Recordings default to the public `Downloads/PebbleRecorder` folder automatically until you pick a different one - no setup required before the first recording.
 - Recording and transcript file names now end in `-rec.m4a` / `-txt.md` instead of sharing a bare timestamp, so the two are easy to tell apart in a file listing.

@@ -11,9 +11,12 @@ import android.content.pm.ServiceInfo
 import android.location.Address
 import android.location.Geocoder
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.media.MediaRecorder
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -61,6 +64,7 @@ class PebbleListenerService : BasePebbleListenerService() {
     private var outputFile: ParcelFileDescriptor? = null
     private var recordingTarget: RecordingTarget? = null
     private var recordingLocation: Location? = null
+    private var pendingLocationListener: LocationListener? = null
     private var isPaused = false
 
     override fun onCreate() {
@@ -145,6 +149,11 @@ class PebbleListenerService : BasePebbleListenerService() {
             // the transcript header if Gemini transcription is on. Best-effort - no location
             // permission or fix available just means the header omits it.
             recordingLocation = if (GeminiPrefs.isEnabled(this) && GeminiPrefs.isLocationEnabled(this)) {
+                // getLastKnownLocation alone is a stale cache - often null if no other app has
+                // requested a fix recently, which is why the tag would sometimes go missing.
+                // Also kick off a fresh fix in the background to upgrade recordingLocation before
+                // the recording stops, falling back to whatever the cache had in the meantime.
+                requestFreshLocation()
                 getBestLastKnownLocation()
             } else {
                 null
@@ -272,6 +281,7 @@ class PebbleListenerService : BasePebbleListenerService() {
         outputFile = null
         recordingTarget = null
         recordingLocation = null
+        getSystemService(LocationManager::class.java)?.let { clearPendingLocationRequest(it) }
         isPaused = false
 
         promoteToArmed()
@@ -354,10 +364,10 @@ class PebbleListenerService : BasePebbleListenerService() {
     }
 
     /**
-     * Best-effort, synchronous last-known location - no fresh GPS fix is requested, since that
-     * would need an async callback with a timeout for what's just supplementary metadata on a
-     * transcript. Returns null if location permission isn't granted or no provider has a cached
-     * fix yet.
+     * Best-effort, synchronous last-known location. This is a passive cache - it's often null or
+     * stale if no app has requested a fix recently, which is why [requestFreshLocation] also runs
+     * alongside it to upgrade [recordingLocation] in the background before the recording stops.
+     * Returns null if location permission isn't granted or no provider has a cached fix yet.
      */
     private fun getBestLastKnownLocation(): Location? {
         val hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -372,6 +382,50 @@ class PebbleListenerService : BasePebbleListenerService() {
             .filter { runCatching { locationManager.isProviderEnabled(it) }.getOrDefault(false) }
             .mapNotNull { provider -> runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull() }
             .maxByOrNull { it.time }
+    }
+
+    /**
+     * Actively requests one fresh location fix in the background and, if it arrives before the
+     * recording stops, overwrites [recordingLocation] with it. Doesn't block recording start -
+     * [getBestLastKnownLocation]'s cached value (possibly null) is used immediately as a fallback.
+     * Gives up and stops listening after 15s so a GPS-less environment doesn't leak the listener.
+     */
+    private fun requestFreshLocation() {
+        val hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) {
+            return
+        }
+        val locationManager = getSystemService(LocationManager::class.java) ?: return
+        val provider = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            .firstOrNull { runCatching { locationManager.isProviderEnabled(it) }.getOrDefault(false) }
+            ?: return
+
+        clearPendingLocationRequest(locationManager)
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                recordingLocation = location
+                clearPendingLocationRequest(locationManager)
+            }
+        }
+        pendingLocationListener = listener
+        try {
+            locationManager.requestSingleUpdate(provider, listener, Looper.getMainLooper())
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to request a fresh location fix", e)
+            pendingLocationListener = null
+            return
+        }
+        Handler(Looper.getMainLooper()).postDelayed({ clearPendingLocationRequest(locationManager) }, 15_000)
+    }
+
+    private fun clearPendingLocationRequest(locationManager: LocationManager) {
+        pendingLocationListener?.let {
+            runCatching { locationManager.removeUpdates(it) }
+            pendingLocationListener = null
+        }
     }
 
     private fun promoteToArmed() {
@@ -449,6 +503,7 @@ class PebbleListenerService : BasePebbleListenerService() {
         recorder = null
         outputFile?.close()
         outputFile = null
+        getSystemService(LocationManager::class.java)?.let { clearPendingLocationRequest(it) }
         sender.close()
         super.onDestroy()
     }

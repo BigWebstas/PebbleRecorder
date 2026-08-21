@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Applies on API < 31. Keeps the Gemini API key out of classic Auto Backup. -->
+<!-- Applies on API < 31. Keeps the Gemini API key out of classic Auto Backup, and keeps a chosen
+     SAF recording folder from silently reappearing after a reinstall (its URI grant may no
+     longer even be valid, and it can point at a folder - like a synced notes inbox - the user
+     didn't mean to keep writing recordings into). -->
 <full-backup-content>
     <exclude domain="sharedpref" path="gemini_prefs.xml" />
+    <exclude domain="sharedpref" path="recording_folder.xml" />
 </full-backup-content>

@@ -67,10 +67,14 @@ object GeminiTranscriber {
         )
         val textPart = JSONObject().put("text", "Transcribe this audio recording accurately.")
         val content = JSONObject().put("parts", JSONArray().put(textPart).put(part))
-        // Plain transcription needs no reasoning - without this, thinking models can burn their
-        // whole token budget on internal "thoughts" and return empty content (finishReason=STOP,
-        // zero output tokens).
-        val generationConfig = JSONObject().put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+        // Plain transcription needs no reasoning - thinkingBudget=0 asks the model to skip it, but
+        // in practice some responses still burn a chunk of the budget on "thoughts" anyway
+        // (seen even with budget=0, especially on very short clips). A generous explicit
+        // maxOutputTokens guards against that consuming the whole response with no room left for
+        // the actual transcript (finishReason=STOP, zero output tokens).
+        val generationConfig = JSONObject()
+            .put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+            .put("maxOutputTokens", 8192)
         return JSONObject()
             .put("contents", JSONArray().put(content))
             .put("generationConfig", generationConfig)
