@@ -1,0 +1,3 @@
+Fixed the location tag sometimes being missing from Gemini transcripts - the app now also requests a fresh GPS/network fix in the background instead of relying only on a cached last-known location.
+Fixed Gemini sometimes returning an empty transcript on short recordings.
+A chosen recording folder no longer silently reappears after an uninstall/reinstall (it's now excluded from Android backup, matching the Gemini API key).

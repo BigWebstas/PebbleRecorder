@@ -1,0 +1,19 @@
+PebbleRecorder turns your Pebble watch into a remote start/stop trigger for audio recording on
+your phone. Press a button on the watch, and this app records straight to a folder you choose -
+no need to touch your phone.
+
+The watch has no microphone logic of its own - it just sends a start/stop command over Pebble's
+AppMessage protocol (relayed through the Pebble/Core companion app) and displays whatever status
+comes back, with a mic/record/stop icon and a live elapsed-time timer. All recording happens here,
+on the phone, via MediaRecorder, writing AAC/M4A files into a folder you pick through the standard
+Android folder picker (Storage Access Framework) - the app only ever writes inside that folder.
+
+Optional features, both off by default:
+* Location tagging: attaches a reverse-geocoded location line to each recording's transcript.
+* Gemini transcription: sends a finished recording to Google's Gemini API (using your own API key)
+  and saves the returned speaker-labeled transcript alongside the recording. This talks to a
+  non-free cloud service and is entirely opt-in - the app works fully without it.
+
+Requires a Pebble smartwatch, paired via a Pebble/Core companion app (e.g. Core Devices' official
+app), and the matching PebbleRecorder watchapp installed on the watch (see the project's source
+repository for the watch app and its own installation instructions).

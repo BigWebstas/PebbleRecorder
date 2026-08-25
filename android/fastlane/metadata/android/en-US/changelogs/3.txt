@@ -1,0 +1,2 @@
+Large mic icon on the Android main screen, matching the notification icon.
+App version shown on both the Android main screen and the watch footer.

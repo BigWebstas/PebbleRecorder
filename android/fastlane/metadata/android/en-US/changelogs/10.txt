@@ -1,0 +1,1 @@
+Prepared for F-Droid: added an fdroid build flavor that ships without the bundled Pebble watchapp binary (which F-Droid's build server can't reproduce from source), hiding the in-app "Install the app on Pebble" sideload button in that build only.

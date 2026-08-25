@@ -1,0 +1,2 @@
+First working end-to-end release: watch button press -> recording -> AAC/M4A file in your chosen folder.
+Idle/Recording state machine on the watch with a status icon and live elapsed-time timer.

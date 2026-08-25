@@ -1,0 +1,4 @@
+Optional location tagging in Gemini transcripts: a location/maps header line plus a reverse-geocoded address hashtag.
+Live "Status: Idle / Recording / Paused" indicator on the Android main screen.
+Location permission status shown alongside the microphone permission line.
+"Install the app on Pebble" button - hands the bundled .pbw to the Pebble/Core companion app directly (GitHub build only).

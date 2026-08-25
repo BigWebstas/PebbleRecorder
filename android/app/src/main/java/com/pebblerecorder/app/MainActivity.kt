@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -57,8 +58,10 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.choose_folder_button).setOnClickListener {
             pickFolder.launch(null)
         }
-        findViewById<Button>(R.id.install_watchapp_button).setOnClickListener {
-            installWatchapp()
+        findViewById<Button>(R.id.install_watchapp_button).apply {
+            // The fdroid flavor ships without the bundled watch.pbw - see app/build.gradle.kts.
+            visibility = if (resources.getBoolean(R.bool.has_bundled_watchapp)) View.VISIBLE else View.GONE
+            setOnClickListener { installWatchapp() }
         }
         findViewById<TextView>(R.id.version_text).text =
             getString(R.string.version_label, packageManager.getPackageInfo(packageName, 0).versionName)

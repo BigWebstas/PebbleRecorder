@@ -1,0 +1,42 @@
+# Draft F-Droid build recipe for PebbleRecorder.
+#
+# This file is NOT consumed by this repo's own build - F-Droid recipes live in a separate repo
+# (https://gitlab.com/fdroid/fdroiddata) as metadata/<applicationId>.yml. To actually submit:
+#   1. Fork/clone gitlab.com/fdroid/fdroiddata.
+#   2. Copy this file to metadata/com.pebblerecorder.app.yml there.
+#   3. Open a merge request. See https://f-droid.org/docs/Submitting_to_F-Droid_Quick_Start_Guide/
+#
+# Only tags from v0.1.9 onward can be built as "fdroid" - the distribution product flavor (and the
+# fastlane metadata this recipe's Summary/Description/Changelog are auto-picked-up from at
+# android/fastlane/metadata/android/en-US/) didn't exist before that. See android/CLAUDE.md's
+# "F-Droid" section for the full rationale.
+
+Categories:
+  - Multimedia
+License: GPL-3.0-only
+AuthorName: BigWebstas
+SourceCode: https://github.com/BigWebstas/PebbleRecorder
+IssueTracker: https://github.com/BigWebstas/PebbleRecorder/issues
+Changelog: https://github.com/BigWebstas/PebbleRecorder/blob/main/README.md
+
+# Gemini transcription is opt-in and off by default (see GeminiPrefs.kt / GeminiTranscriber.kt),
+# but it does talk to Google's non-free Gemini API when the user turns it on and supplies their
+# own API key.
+AntiFeatures:
+  - NonFreeNet
+
+RepoType: git
+Repo: https://github.com/BigWebstas/PebbleRecorder.git
+
+Builds:
+  - versionName: 0.1.9
+    versionCode: 10
+    commit: v0.1.9
+    subdir: android
+    gradle:
+      - fdroid
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 0.1.9
+CurrentVersionCode: 10

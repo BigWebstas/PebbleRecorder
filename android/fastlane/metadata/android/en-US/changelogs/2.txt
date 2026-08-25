@@ -1,0 +1,1 @@
+Shortened the status text on the Android main screen.

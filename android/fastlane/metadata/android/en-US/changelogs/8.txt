@@ -1,0 +1,1 @@
+The app now re-arms itself after a phone reboot and posts a notification prompting a single tap to fully re-enable the watch trigger, instead of requiring you to dig into the app to find it.

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Overridden per distribution flavor in src/github and src/fdroid - see app/build.gradle.kts. -->
+    <bool name="has_bundled_watchapp">false</bool>
+</resources>

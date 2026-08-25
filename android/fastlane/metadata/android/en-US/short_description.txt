@@ -1,0 +1,1 @@
+Turn a Pebble watch button into a remote start/stop trigger for audio recording.

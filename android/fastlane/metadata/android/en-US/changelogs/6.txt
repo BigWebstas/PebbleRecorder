@@ -1,0 +1,5 @@
+Recordings default to the public Downloads/PebbleRecorder folder automatically until you pick a different one - no setup required before the first recording.
+Recording and transcript file names now end in -rec.m4a / -txt.md instead of sharing a bare timestamp, so the two are easy to tell apart in a file listing.
+Renamed the watchapp sideload button to "Install the app on Pebble".
+Fixed a leftover-file bug when the watch triggers recording before the app has ever been opened.
+Fixed Gemini transcripts sometimes coming back empty.

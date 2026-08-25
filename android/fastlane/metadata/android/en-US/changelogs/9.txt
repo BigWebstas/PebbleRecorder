@@ -1,0 +1,1 @@
+Gemini transcripts now identify distinct speakers and label each line with a consistent speaker tag (Speaker 1:, Speaker 2:, etc.) formatted as markdown, instead of one undifferentiated block of text.

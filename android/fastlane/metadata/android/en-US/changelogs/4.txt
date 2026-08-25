@@ -1,0 +1,3 @@
+Pause/resume from the watch (UP or DOWN), with a red/blue background on color watches and a timer that pauses and resumes rather than resetting.
+Optional Gemini transcription: finished recordings are transcribed and saved as a same-named .md file.
+Tapping the persistent notification now reopens the app.

@@ -20,8 +20,23 @@ android {
         applicationId = "com.pebblerecorder.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
-        versionName = "0.1.8"
+        versionCode = 10
+        versionName = "0.1.9"
+    }
+
+    // F-Droid's build server only builds this android/ module - it has no Pebble SDK toolchain,
+    // so it can't reproduce watch/build/watch.pbw from source. The "fdroid" flavor ships without
+    // that bundled binary (see the syncWatchAppAsset task below); MainActivity hides the "Install
+    // the app on Pebble" sideload button when it's absent (bool/has_bundled_watchapp). The
+    // "github" flavor keeps today's behavior for the artifacts published on the Releases page.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("github") {
+            dimension = "distribution"
+        }
+        create("fdroid") {
+            dimension = "distribution"
+        }
     }
 
     signingConfigs {
@@ -59,15 +74,15 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 }
 
-// Keeps assets/watch.pbw (bundled for the in-app "Install watchapp on watch" sideload button) in
-// sync with the sibling watch/ project's latest build output. Best-effort: if the watch app
-// hasn't been built (no watch/build/watch.pbw yet), this leaves whatever's already committed to
-// assets/ alone rather than failing the Android build.
+// Keeps the "github" flavor's bundled assets/watch.pbw (used by the in-app "Install the app on
+// Pebble" sideload button) in sync with the sibling watch/ project's latest build output.
+// Best-effort: if the watch app hasn't been built (no watch/build/watch.pbw yet), this leaves
+// whatever's already committed to src/github/assets/ alone rather than failing the Android build.
 val syncWatchAppAsset = tasks.register<Copy>("syncWatchAppAsset") {
     val source = rootProject.file("../watch/build/watch.pbw")
     onlyIf { source.exists() }
     from(source)
-    into("src/main/assets")
+    into("src/github/assets")
 }
 tasks.named("preBuild") {
     dependsOn(syncWatchAppAsset)
