@@ -65,7 +65,13 @@ object GeminiTranscriber {
                 .put("mimeType", "audio/mp4")
                 .put("data", Base64.encodeToString(audioBytes, Base64.NO_WRAP)),
         )
-        val textPart = JSONObject().put("text", "Transcribe this audio recording accurately.")
+        val textPart = JSONObject().put(
+            "text",
+            "Transcribe this audio recording accurately. Identify distinct speakers and " +
+                "label each line with a consistent speaker tag (**Speaker 1:**, **Speaker 2:**, " +
+                "etc.) in the order they first speak, formatted as markdown. If you cannot " +
+                "distinguish speakers, omit the labels rather than guessing.",
+        )
         val content = JSONObject().put("parts", JSONArray().put(textPart).put(part))
         // Plain transcription needs no reasoning - thinkingBudget=0 asks the model to skip it, but
         // in practice some responses still burn a chunk of the budget on "thoughts" anyway
