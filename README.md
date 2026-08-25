@@ -89,6 +89,9 @@ See each directory's own docs for more detail on its build setup.
 
 See the [Releases page](https://github.com/BigWebstas/PebbleRecorder/releases) for downloadable `.apk`/`.pbw` artifacts of each version.
 
+### [v0.1.8](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.8)
+- Gemini transcripts now identify distinct speakers and label each line with a consistent speaker tag (**Speaker 1:**, **Speaker 2:**, etc.) formatted as markdown, instead of one undifferentiated block of text.
+
 ### [v0.1.7](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.7)
 - The app now re-arms itself after a phone reboot and posts a notification prompting a single tap to fully re-enable the watch trigger, instead of requiring you to dig into the app to find it.
 
