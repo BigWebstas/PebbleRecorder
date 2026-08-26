@@ -89,6 +89,9 @@ See each directory's own docs for more detail on its build setup.
 
 See the [Releases page](https://github.com/BigWebstas/PebbleRecorder/releases) for downloadable `.apk`/`.pbw` artifacts of each version.
 
+### [v0.1.10](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.10)
+- Fixed F-Droid build: added a lock file for `watch/package.json` so F-Droid's dependency scanner stops rejecting the build. No app behavior changes.
+
 ### [v0.1.9](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.9)
 - Prepared for F-Droid: added an `fdroid` build flavor that ships without the bundled Pebble watchapp binary (which F-Droid's build server can't reproduce from source), hiding the in-app "Install the app on Pebble" sideload button in that build only.
 
