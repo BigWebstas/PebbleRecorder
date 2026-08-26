@@ -20,8 +20,8 @@ android {
         applicationId = "com.pebblerecorder.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 10
-        versionName = "0.1.9"
+        versionCode = 11
+        versionName = "0.1.10"
     }
 
     // F-Droid's build server only builds this android/ module - it has no Pebble SDK toolchain,

@@ -1,0 +1,1 @@
+Fixed F-Droid build: added a lock file for watch/package.json so F-Droid's dependency scanner stops rejecting the build. No app behavior changes.
