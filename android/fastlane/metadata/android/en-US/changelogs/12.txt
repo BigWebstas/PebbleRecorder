@@ -1,0 +1,1 @@
+Fixed F-Droid reproducible build: disabled the AGP "Dependency metadata" signing block (Play Console-only, unused here) that F-Droid's binary scanner rejected. No app behavior changes.

@@ -20,8 +20,16 @@ android {
         applicationId = "com.pebblerecorder.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 11
-        versionName = "0.1.10"
+        versionCode = 12
+        versionName = "0.1.11"
+    }
+
+    // AGP embeds a "Dependency metadata" signing block by default (Play Console integrity
+    // checks, irrelevant since this app isn't distributed there) - F-Droid's binary scanner
+    // rejects any extra signing block in a reproducible-build reference APK, so turn it off.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     // F-Droid's build server only builds this android/ module - it has no Pebble SDK toolchain,

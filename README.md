@@ -89,6 +89,9 @@ See each directory's own docs for more detail on its build setup.
 
 See the [Releases page](https://github.com/BigWebstas/PebbleRecorder/releases) for downloadable `.apk`/`.pbw` artifacts of each version.
 
+### [v0.1.11](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.11)
+- Fixed F-Droid reproducible build: disabled the AGP "Dependency metadata" signing block (Play Console-only, unused here) that F-Droid's binary scanner rejected. No app behavior changes.
+
 ### [v0.1.10](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.10)
 - Fixed F-Droid build: added a lock file for `watch/package.json` so F-Droid's dependency scanner stops rejecting the build. No app behavior changes.
 
