@@ -35,7 +35,7 @@ AntiFeatures:
 # history for the exact failure).
 RepoType: git
 Repo: https://github.com/BigWebstas/PebbleRecorder.git
-Binaries:
+Binaries: 
   https://github.com/BigWebstas/PebbleRecorder/releases/download/v%v/PebbleRecorder-v%v-fdroid.apk
 
 Builds:
