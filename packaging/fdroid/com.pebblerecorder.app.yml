@@ -43,9 +43,9 @@ Builds:
   # `git rev-parse vX.Y.Z^{commit}` (note the `^{commit}` dereference - `git tag -a` makes an
   # annotated tag object, and a bare `git rev-parse vX.Y.Z` returns *that* object's hash, not the
   # commit it points to).
-  - versionName: 0.1.10
-    versionCode: 11
-    commit: 0756845c75dfc49591abfe0efca61688fd9b485f
+  - versionName: 0.1.11
+    versionCode: 12
+    commit: 59d08e7bbf510816f6b20481d5a4cf289854a4c0
     subdir: android
     gradle:
       - fdroid
@@ -58,9 +58,11 @@ Builds:
 # SHA-256 of the release signing cert (see android/CLAUDE.md / project-release-process memory) -
 # lets F-Droid's reproducible-build tooling verify a from-source rebuild matches the APK fetched
 # from Binaries: above and sign with our real key via apksigcopier, instead of F-Droid's own key.
+# AGP's "Dependency metadata" signing block must stay disabled (dependenciesInfo in
+# android/app/build.gradle.kts) - F-Droid's binary scanner rejects any extra signing block.
 AllowedAPKSigningKeys: 3c7b738a4be737b5ed376eb686f9d507d4779d715e6d73a0306e2d7b7203852c
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 0.1.10
-CurrentVersionCode: 11
+CurrentVersion: 0.1.11
+CurrentVersionCode: 12
