@@ -27,9 +27,16 @@ AutoName: PebbleRecorder
 AntiFeatures:
   - NonFreeNet
 
+# The reference binary for reproducible-build verification must be the "fdroid" flavor
+# specifically (no bundled watch.pbw) - F-Droid's from-source build produces that flavor, not
+# "github" (see the two flavors in android/CLAUDE.md). Every release from now on needs a
+# PebbleRecorder-vX.Y.Z-fdroid.apk asset attached alongside the usual github-flavor .apk/.pbw, or
+# this comparison fails with a content mismatch (confirmed - see fdroiddata MR !46830 review
+# history for the exact failure).
 RepoType: git
 Repo: https://github.com/BigWebstas/PebbleRecorder.git
-Binaries: https://github.com/BigWebstas/PebbleRecorder/releases/download/v%v/PebbleRecorder-v%v.apk
+Binaries:
+  https://github.com/BigWebstas/PebbleRecorder/releases/download/v%v/PebbleRecorder-v%v-fdroid.apk
 
 Builds:
   # F-Droid reviewers want the full commit hash here, not a tag/branch name (tags are mutable) -
