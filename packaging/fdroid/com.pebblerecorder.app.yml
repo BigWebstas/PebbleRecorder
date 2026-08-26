@@ -19,6 +19,8 @@ SourceCode: https://github.com/BigWebstas/PebbleRecorder
 IssueTracker: https://github.com/BigWebstas/PebbleRecorder/issues
 Changelog: https://github.com/BigWebstas/PebbleRecorder/blob/main/README.md
 
+AutoName: PebbleRecorder
+
 # Gemini transcription is opt-in and off by default (see GeminiPrefs.kt / GeminiTranscriber.kt),
 # but it does talk to Google's non-free Gemini API when the user turns it on and supplies their
 # own API key.
@@ -35,6 +37,11 @@ Builds:
     subdir: android
     gradle:
       - fdroid
+    # F-Droid's build server can't reproduce the actual output path (android/app/build/outputs/apk/...)
+    # via its default gradle-flavor scan because android/ is a multi-module Gradle project (root +
+    # "app" submodule), not a single-module layout - fdroidserver's scan only checks
+    # <subdir>/build/outputs/apk/<flavor>/release. Point it at the real location explicitly.
+    output: app/build/outputs/apk/fdroid/release/app-fdroid-release-unsigned.apk
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
