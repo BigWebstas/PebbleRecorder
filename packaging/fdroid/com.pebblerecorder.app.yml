@@ -25,7 +25,10 @@ AutoName: PebbleRecorder
 # but it does talk to Google's non-free Gemini API when the user turns it on and supplies their
 # own API key.
 AntiFeatures:
-  - NonFreeNet
+  NonFreeNet:
+    en-US: The optional, off-by-default transcription feature sends recordings to
+      Google's proprietary Gemini API when the user enables it and supplies their
+      own API key.
 
 # The reference binary for reproducible-build verification must be the "fdroid" flavor
 # specifically (no bundled watch.pbw) - F-Droid's from-source build produces that flavor, not
@@ -46,14 +49,13 @@ Builds:
   - versionName: 0.1.11
     versionCode: 12
     commit: 59d08e7bbf510816f6b20481d5a4cf289854a4c0
-    subdir: android
+    # subdir is the directory where the `build` dir is generated, i.e. the "app" Gradle module -
+    # android/app/build/... - so fdroidserver's default flavor scan finds
+    # <subdir>/build/outputs/apk/fdroid/release with no explicit `output:` needed. Gradle still
+    # picks up the root settings.gradle.kts by searching upward from here.
+    subdir: android/app
     gradle:
       - fdroid
-    # F-Droid's build server can't reproduce the actual output path (android/app/build/outputs/apk/...)
-    # via its default gradle-flavor scan because android/ is a multi-module Gradle project (root +
-    # "app" submodule), not a single-module layout - fdroidserver's scan only checks
-    # <subdir>/build/outputs/apk/<flavor>/release. Point it at the real location explicitly.
-    output: app/build/outputs/apk/fdroid/release/app-fdroid-release-unsigned.apk
 
 # SHA-256 of the release signing cert (see android/CLAUDE.md / project-release-process memory) -
 # lets F-Droid's reproducible-build tooling verify a from-source rebuild matches the APK fetched
