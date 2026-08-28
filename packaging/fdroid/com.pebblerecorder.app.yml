@@ -50,9 +50,7 @@ Builds:
   # commit it points to).
   - versionName: 0.1.12
     versionCode: 13
-    # TODO before pushing to the fdroiddata MR: replace with `git rev-parse v0.1.12^{commit}`
-    # once the v0.1.12 tag is pushed.
-    commit: 0000000000000000000000000000000000000000
+    commit: dc70a2d80755e5830ef2a61dd30ba64d0c5e71d0
     # subdir is the directory where the `build` dir is generated, i.e. the "app" Gradle module -
     # android/app/build/... - so fdroidserver's default flavor scan finds
     # <subdir>/build/outputs/apk/fdroid/release with no explicit `output:` needed. Gradle still
