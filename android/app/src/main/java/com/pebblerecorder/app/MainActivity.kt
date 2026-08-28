@@ -1,11 +1,15 @@
 package com.pebblerecorder.app
 
 import android.Manifest
+import android.app.ActivityManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -33,6 +37,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var permissionsText: TextView
     private lateinit var recordingStatusText: TextView
+    private lateinit var batterySettingsButton: Button
 
     private val pickFolder = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
@@ -61,6 +66,8 @@ class MainActivity : AppCompatActivity() {
 
         permissionsText = findViewById(R.id.permissions_text)
         recordingStatusText = findViewById(R.id.recording_status_text)
+        batterySettingsButton = findViewById(R.id.battery_settings_button)
+        batterySettingsButton.setOnClickListener { openBatterySettings() }
         findViewById<Button>(R.id.choose_folder_button).setOnClickListener {
             pickFolder.launch(null)
         }
@@ -199,6 +206,7 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
                 PackageManager.PERMISSION_GRANTED
         val folder = RecordingFolderPrefs.get(this)
+        val batteryUnrestricted = isBatteryUnrestricted()
 
         permissionsText.text = buildString {
             append(
@@ -217,6 +225,8 @@ class MainActivity : AppCompatActivity() {
                 ),
             )
             append("\n")
+            append(getString(if (batteryUnrestricted) R.string.battery_unrestricted else R.string.battery_restricted))
+            append("\n")
             append(
                 if (folder != null) {
                     getString(R.string.folder_selected, folder.lastPathSegment ?: folder.toString())
@@ -224,6 +234,45 @@ class MainActivity : AppCompatActivity() {
                     getString(R.string.folder_missing)
                 },
             )
+        }
+
+        batterySettingsButton.visibility = if (batteryUnrestricted) View.GONE else View.VISIBLE
+    }
+
+    /**
+     * True when Android won't throttle the app in the background: exempt from battery
+     * optimization (Doze) and not under a user "background restriction". The watch-trigger
+     * service needs both to reliably receive a command while the phone is idle.
+     */
+    private fun isBatteryUnrestricted(): Boolean {
+        val ignoringOptimizations = getSystemService(PowerManager::class.java)
+            ?.isIgnoringBatteryOptimizations(packageName) == true
+        val backgroundRestricted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            getSystemService(ActivityManager::class.java)?.isBackgroundRestricted == true
+        return ignoringOptimizations && !backgroundRestricted
+    }
+
+    private fun openBatterySettings() {
+        val packageUri = Uri.parse("package:$packageName")
+        val ignoringOptimizations = getSystemService(PowerManager::class.java)
+            ?.isIgnoringBatteryOptimizations(packageName) == true
+        // If optimization is still on, ask for the exemption directly (one dialog). Once that's
+        // granted, any remaining problem is the "background restricted" toggle, which has no
+        // direct intent - fall back to the app's settings page.
+        @Suppress("BatteryLife")
+        val primary = if (!ignoringOptimizations) {
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri)
+        } else {
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri)
+        }
+        try {
+            startActivity(primary)
+        } catch (e: ActivityNotFoundException) {
+            try {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri))
+            } catch (e2: ActivityNotFoundException) {
+                Toast.makeText(this, R.string.battery_restricted, Toast.LENGTH_LONG).show()
+            }
         }
     }
 }

@@ -18,6 +18,9 @@
     <string name="gemini_location_label">Include location in transcripts</string>
     <string name="location_permission_granted">Location permission: granted</string>
     <string name="location_permission_missing">Location permission: not granted</string>
+    <string name="battery_unrestricted">Battery: unrestricted</string>
+    <string name="battery_restricted">Battery: restricted — Android may kill the watch trigger in the background; allow unrestricted use below</string>
+    <string name="battery_settings_button">Allow unrestricted battery use</string>
     <string name="status_label">Status: %1$s</string>
     <string name="status_idle">Idle</string>
     <string name="status_recording">Recording</string>
