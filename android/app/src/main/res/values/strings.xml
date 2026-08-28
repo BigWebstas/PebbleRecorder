@@ -7,6 +7,8 @@
     <string name="folder_selected">Recording folder: %1$s</string>
     <string name="folder_missing">Recording folder: Downloads/PebbleRecorder (default) — choose a folder below to change it</string>
     <string name="recording_notification_channel_name">Recording</string>
+    <string name="transcription_notification_channel_name">Transcription</string>
+    <string name="transcription_failed_notification_title">Transcription failed</string>
     <string name="recording_notification_title">PebbleRecorder is recording</string>
     <string name="armed_notification_title">PebbleRecorder is Idle</string>
     <string name="paused_notification_title">PebbleRecorder is paused</string>

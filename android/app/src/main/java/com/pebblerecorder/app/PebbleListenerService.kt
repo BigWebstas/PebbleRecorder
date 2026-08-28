@@ -42,6 +42,10 @@ import kotlin.coroutines.resume
 private const val TAG = "PebbleListenerService"
 private const val NOTIFICATION_CHANNEL_ID = "recording"
 private const val NOTIFICATION_ID = 1
+private const val TRANSCRIPTION_CHANNEL_ID = "transcription"
+// Failure notifications are keyed off the recording name (offset from this base) so a repeated
+// failure for the same file updates in place while different files each get their own.
+private const val TRANSCRIPTION_FAILURE_NOTIFICATION_BASE_ID = 100
 
 /**
  * Bound by the Pebble/Core companion app while the watch trigger app is open on a paired watch.
@@ -323,6 +327,7 @@ class PebbleListenerService : BasePebbleListenerService() {
                     }
                     .onFailure { error ->
                         Log.e(TAG, "Gave up transcribing ${target.displayName} after retries", error)
+                        notifyTranscriptionFailed(target.displayName, error)
                     }
             } finally {
                 target.finalize(this@PebbleListenerService)
@@ -486,12 +491,55 @@ class PebbleListenerService : BasePebbleListenerService() {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            NOTIFICATION_CHANNEL_ID,
-            getString(R.string.recording_notification_channel_name),
-            NotificationManager.IMPORTANCE_LOW,
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                getString(R.string.recording_notification_channel_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ),
         )
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        // IMPORTANCE_LOW: shows in the shade but never makes a sound or a heads-up - the failure
+        // notice is informational, not urgent.
+        manager.createNotificationChannel(
+            NotificationChannel(
+                TRANSCRIPTION_CHANNEL_ID,
+                getString(R.string.transcription_notification_channel_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ),
+        )
+    }
+
+    /** Posts a silent notification with the error after transcription has exhausted its retries. */
+    private fun notifyTranscriptionFailed(recordingName: String, error: Throwable) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val detail = error.message ?: error.javaClass.simpleName
+        val notification = NotificationCompat.Builder(this, TRANSCRIPTION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_mic)
+            .setContentTitle(getString(R.string.transcription_failed_notification_title))
+            .setContentText(recordingName)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$recordingName\n\n$detail"))
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    this,
+                    0,
+                    Intent(this, MainActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+            .build()
+        getSystemService(NotificationManager::class.java).notify(
+            TRANSCRIPTION_FAILURE_NOTIFICATION_BASE_ID + (recordingName.hashCode() and 0xFFFF),
+            notification,
+        )
     }
 
     private fun buildNotification(titleRes: Int): Notification =
