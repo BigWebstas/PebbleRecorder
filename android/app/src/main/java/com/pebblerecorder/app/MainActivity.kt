@@ -14,6 +14,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -24,6 +25,11 @@ import java.io.FileOutputStream
 import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        /** Intent extra: the transcription error text a "transcription failed" notification opens with. */
+        const val EXTRA_TRANSCRIPTION_ERROR = "com.pebblerecorder.app.extra.TRANSCRIPTION_ERROR"
+    }
 
     private lateinit var permissionsText: TextView
     private lateinit var recordingStatusText: TextView
@@ -86,11 +92,31 @@ class MainActivity : AppCompatActivity() {
         // arrives, since Android forbids starting a *new* mic-type foreground service from the
         // background. See PebbleListenerService's class doc for the full explanation.
         ContextCompat.startForegroundService(this, Intent(this, PebbleListenerService::class.java))
+
+        showTranscriptionErrorIfPresent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        showTranscriptionErrorIfPresent(intent)
     }
 
     override fun onResume() {
         super.onResume()
         updateStatus()
+    }
+
+    /** Shows the error carried by a tapped "transcription failed" notification (see PebbleListenerService). */
+    private fun showTranscriptionErrorIfPresent(intent: Intent?) {
+        val message = intent?.getStringExtra(EXTRA_TRANSCRIPTION_ERROR) ?: return
+        // Clear it so a config change (rotation) doesn't re-pop the dialog.
+        intent.removeExtra(EXTRA_TRANSCRIPTION_ERROR)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.transcription_failed_notification_title)
+            .setMessage(message)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun setUpGeminiSettings() {

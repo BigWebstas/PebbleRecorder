@@ -519,27 +519,29 @@ class PebbleListenerService : BasePebbleListenerService() {
             return
         }
         val detail = error.message ?: error.javaClass.simpleName
+        val fullMessage = "$recordingName\n\n$detail"
+        val notificationId = TRANSCRIPTION_FAILURE_NOTIFICATION_BASE_ID + (recordingName.hashCode() and 0xFFFF)
+        // Tapping the notification opens MainActivity, which shows this text in a dialog. The
+        // per-notification request code + FLAG_UPDATE_CURRENT keep each recording's error distinct.
+        val contentIntent = PendingIntent.getActivity(
+            this,
+            notificationId,
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_TRANSCRIPTION_ERROR, fullMessage)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         val notification = NotificationCompat.Builder(this, TRANSCRIPTION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mic)
             .setContentTitle(getString(R.string.transcription_failed_notification_title))
             .setContentText(recordingName)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$recordingName\n\n$detail"))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(fullMessage))
             .setAutoCancel(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setContentIntent(
-                PendingIntent.getActivity(
-                    this,
-                    0,
-                    Intent(this, MainActivity::class.java),
-                    PendingIntent.FLAG_IMMUTABLE,
-                ),
-            )
+            .setContentIntent(contentIntent)
             .build()
-        getSystemService(NotificationManager::class.java).notify(
-            TRANSCRIPTION_FAILURE_NOTIFICATION_BASE_ID + (recordingName.hashCode() and 0xFFFF),
-            notification,
-        )
+        getSystemService(NotificationManager::class.java).notify(notificationId, notification)
     }
 
     private fun buildNotification(titleRes: Int): Notification =
