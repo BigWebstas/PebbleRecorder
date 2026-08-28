@@ -1,0 +1,1 @@
+Watch app 1.0.3: on touch watches like the Pebble Time 2, tapping the screen starts a recording and then toggles it between recording and paused. Stop stays on the SELECT button.
