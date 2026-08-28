@@ -89,6 +89,9 @@ See each directory's own docs for more detail on its build setup.
 
 See the [Releases page](https://github.com/BigWebstas/PebbleRecorder/releases) for downloadable `.apk`/`.pbw` artifacts of each version.
 
+### [v0.1.16](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.16)
+- The main screen now shows whether the app is exempt from Android's background battery restrictions (Doze), with a one-tap button to allow unrestricted battery use — the watch trigger needs this to stay alive in the background.
+
 ### [v0.1.15](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.15)
 - Watch app (`1.0.3`): on touch watches like the Pebble Time 2, tapping the screen now starts a recording and toggles it between recording and paused. Stop stays on the SELECT button.
 

@@ -1,0 +1,1 @@
+The main screen now shows whether the app is exempt from Android's background battery restrictions (Doze), with a one-tap button to allow unrestricted battery use. The watch trigger needs this to keep running in the background.
