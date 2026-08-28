@@ -36,6 +36,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArraySet
 import kotlin.coroutines.resume
 
 private const val TAG = "PebbleListenerService"
@@ -66,6 +67,14 @@ class PebbleListenerService : BasePebbleListenerService() {
     private var recordingLocation: Location? = null
     private var pendingLocationListener: LocationListener? = null
     private var isPaused = false
+
+    /**
+     * Finished recordings whose transcript hasn't come back from Gemini yet. They stay in their
+     * hidden in-progress form (SAF dotfile / MediaStore IS_PENDING) until transcription finishes,
+     * so a folder-watcher sees the audio and its transcript appear together. Tracked here so
+     * [onDestroy] can still reveal them if the process is torn down mid-transcription.
+     */
+    private val pendingTranscriptionTargets = CopyOnWriteArraySet<RecordingTarget>()
 
     override fun onCreate() {
         super.onCreate()
@@ -253,8 +262,13 @@ class PebbleListenerService : BasePebbleListenerService() {
         return try {
             recorder?.stop()
             if (finishedTarget != null) {
-                finishedTarget.finalize(this)
-                transcribeIfEnabled(finishedTarget, location)
+                if (GeminiPrefs.isEnabled(this)) {
+                    // Keep the recording hidden until the transcript is in (or has definitively
+                    // failed) - see transcribeThenFinalize.
+                    transcribeThenFinalize(finishedTarget, location)
+                } else {
+                    finishedTarget.finalize(this)
+                }
             }
             WatchProtocol.STATUS_IDLE
         } catch (e: Exception) {
@@ -287,22 +301,33 @@ class PebbleListenerService : BasePebbleListenerService() {
         promoteToArmed()
     }
 
-    private fun transcribeIfEnabled(target: RecordingTarget, location: Location?) {
-        if (!GeminiPrefs.isEnabled(this)) {
-            return
-        }
+    /**
+     * Transcribes [target] (retrying transient failures - see [GeminiTranscriber.transcribe]),
+     * writes the transcript sibling, then finalizes the recording. The recording is only revealed
+     * once this completes, so folder-watching apps see the audio and its transcript together.
+     *
+     * The recording is finalized even when transcription ultimately fails - a missing transcript
+     * shouldn't cost the user their audio.
+     */
+    private fun transcribeThenFinalize(target: RecordingTarget, location: Location?) {
+        pendingTranscriptionTargets.add(target)
         coroutineScope.launch {
-            GeminiTranscriber.transcribe(this@PebbleListenerService, target.uri)
-                .onSuccess { transcript ->
-                    val locationTag = location?.let {
-                        runCatching { reverseGeocodeTag(it) }.getOrNull()
+            try {
+                GeminiTranscriber.transcribe(this@PebbleListenerService, target.uri)
+                    .onSuccess { transcript ->
+                        val locationTag = location?.let {
+                            runCatching { reverseGeocodeTag(it) }.getOrNull()
+                        }
+                        writeTranscript(target, transcript, location, locationTag)
+                        Log.d(TAG, "Transcribed ${target.displayName}")
                     }
-                    writeTranscript(target, transcript, location, locationTag)
-                    Log.d(TAG, "Transcribed ${target.displayName}")
-                }
-                .onFailure { error ->
-                    Log.e(TAG, "Failed to transcribe ${target.displayName}", error)
-                }
+                    .onFailure { error ->
+                        Log.e(TAG, "Gave up transcribing ${target.displayName} after retries", error)
+                    }
+            } finally {
+                target.finalize(this@PebbleListenerService)
+                pendingTranscriptionTargets.remove(target)
+            }
         }
     }
 
@@ -499,6 +524,10 @@ class PebbleListenerService : BasePebbleListenerService() {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to stop recording during teardown", e)
         }
+        // Reveal any recordings still waiting on a transcript - they won't get one now, but the
+        // audio shouldn't be left stuck in its hidden in-progress form.
+        pendingTranscriptionTargets.forEach { runCatching { it.finalize(this) } }
+        pendingTranscriptionTargets.clear()
         recorder?.release()
         recorder = null
         outputFile?.close()
