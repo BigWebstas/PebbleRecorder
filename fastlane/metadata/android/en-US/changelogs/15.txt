@@ -1,0 +1,1 @@
+When a transcription fails after its retries, the app now posts a silent notification with the error detail. Tapping it opens the app and shows the full error in a dialog.
