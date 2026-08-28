@@ -2,6 +2,13 @@
 
 A Pebble watchapp/watchface written in C using the Pebble SDK.
 
+## Controls
+
+- **SELECT** — start a recording; press again to stop.
+- **UP / DOWN** — pause / resume.
+- **Screen tap** (touch watches, e.g. Pebble Time 2) — start a recording, then tap again to
+  toggle between recording and paused. Stop stays on SELECT.
+
 ## Building & running
 
 ```sh

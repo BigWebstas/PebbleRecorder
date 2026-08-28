@@ -2,7 +2,11 @@
 
 // Pebble apps have no runtime API to read their own appinfo version, so this is kept in sync
 // with watch/package.json's "version" field by hand.
-#define APP_VERSION "1.0.2"
+#define APP_VERSION "1.0.3"
+
+// Max distance (px) a touch may travel between touchdown and liftoff and still count as a tap
+// rather than a swipe/drag. Anything past this is ignored.
+#define TOUCH_TAP_SLOP_PX 24
 
 // Values sent watch -> phone via MESSAGE_KEY_COMMAND.
 typedef enum {
@@ -42,6 +46,8 @@ static time_t s_recording_start_time;
 static time_t s_pause_started_at; // 0 when not currently paused
 static char s_timer_buffer[12];
 static GColor s_icon_color;
+static GPoint s_touch_down_point; // touchdown coords, for tap-vs-swipe classification
+static bool s_touch_is_tap;       // gesture still qualifies as a tap (hasn't travelled too far)
 
 // Draws a mic icon by default, swapping to a record (filled circle) icon while actively
 // recording, a stop (filled square) icon while idle (ready to start), and a pause (two bars)
@@ -197,6 +203,52 @@ static void prv_select_click_handler(ClickRecognizerRef recognizer, void *contex
   // Ignore presses while STARTING/STOPPING/PAUSING/RESUMING (waiting on phone) or NO_PHONE.
 }
 
+// A screen tap (on touch platforms like Pebble Time 2) starts a recording, then toggles it
+// between recording and paused. Stop stays on the SELECT button.
+static void prv_handle_tap_toggle(void) {
+  switch (s_state) {
+    case APP_STATE_IDLE:
+    case APP_STATE_ERROR:
+      prv_send_command(COMMAND_START);
+      break;
+    case APP_STATE_RECORDING:
+      prv_send_command(COMMAND_PAUSE);
+      break;
+    case APP_STATE_PAUSED:
+      prv_send_command(COMMAND_RESUME);
+      break;
+    default:
+      // STARTING/STOPPING/PAUSING/RESUMING (waiting on phone) or NO_PHONE: ignore.
+      break;
+  }
+}
+
+static void prv_touch_handler(const TouchEvent *event, void *context) {
+  switch (event->type) {
+    case TouchEvent_Touchdown:
+      s_touch_down_point = GPoint(event->x, event->y);
+      s_touch_is_tap = true;
+      break;
+    case TouchEvent_PositionUpdate: {
+      if (!s_touch_is_tap) {
+        break;
+      }
+      int dx = event->x - s_touch_down_point.x;
+      int dy = event->y - s_touch_down_point.y;
+      if (dx * dx + dy * dy > TOUCH_TAP_SLOP_PX * TOUCH_TAP_SLOP_PX) {
+        s_touch_is_tap = false; // travelled too far - a swipe/drag, not a tap
+      }
+      break;
+    }
+    case TouchEvent_Liftoff:
+      if (s_touch_is_tap) {
+        s_touch_is_tap = false;
+        prv_handle_tap_toggle();
+      }
+      break;
+  }
+}
+
 static void prv_pause_resume_click_handler(ClickRecognizerRef recognizer, void *context) {
   if (s_state == APP_STATE_RECORDING) {
     prv_send_command(COMMAND_PAUSE);
@@ -277,9 +329,15 @@ static void prv_window_load(Window *window) {
   layer_add_child(window_layer, text_layer_get_layer(s_version_layer));
 
   prv_set_state(connection_service_peek_pebble_app_connection() ? APP_STATE_IDLE : APP_STATE_NO_PHONE);
+
+  // Touch platforms (e.g. Pebble Time 2 / emery): a tap toggles start/pause. No-op elsewhere.
+  if (touch_service_is_enabled()) {
+    touch_service_subscribe(prv_touch_handler, NULL);
+  }
 }
 
 static void prv_window_unload(Window *window) {
+  touch_service_unsubscribe();
   text_layer_destroy(s_status_layer);
   text_layer_destroy(s_timer_layer);
   text_layer_destroy(s_version_layer);

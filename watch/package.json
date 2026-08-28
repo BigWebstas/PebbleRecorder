@@ -1,7 +1,7 @@
 {
   "name": "watch",
-  "author": "MakeAwesomeHappen",
-  "version": "1.0.2",
+  "author": "BigWebstas",
+  "version": "1.0.3",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {},
