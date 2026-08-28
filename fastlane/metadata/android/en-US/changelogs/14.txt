@@ -1,0 +1,1 @@
+When transcription is enabled, a recording now stays hidden until its Gemini transcript is ready, so the audio file and its transcript appear together rather than seconds apart. Transcription also retries transient failures (network errors, rate limits, server errors) before giving up, and the recording is always kept even if transcription ultimately fails.

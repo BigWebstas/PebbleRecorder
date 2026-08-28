@@ -89,6 +89,10 @@ See each directory's own docs for more detail on its build setup.
 
 See the [Releases page](https://github.com/BigWebstas/PebbleRecorder/releases) for downloadable `.apk`/`.pbw` artifacts of each version.
 
+### [v0.1.13](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.13)
+- When transcription is on, a recording now stays hidden until its Gemini transcript is ready, so the audio and the `-txt.md` transcript appear together instead of seconds apart.
+- Transcription now retries transient failures (network errors, rate limits, server errors) a few times before giving up; the recording is always kept even if transcription ultimately fails.
+
 ### [v0.1.12](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.12)
 - Moved the Fastlane metadata to the repository root so F-Droid's release server picks up the app description, screenshots and changelogs (its released tooling doesn't scan nested paths). No app behavior changes.
 
