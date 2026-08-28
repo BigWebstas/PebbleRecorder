@@ -6,9 +6,11 @@
 #   2. Copy this file to metadata/com.pebblerecorder.app.yml there.
 #   3. Open a merge request. See https://f-droid.org/docs/Submitting_to_F-Droid_Quick_Start_Guide/
 #
-# Only tags from v0.1.9 onward can be built as "fdroid" - the distribution product flavor (and the
-# fastlane metadata this recipe's Summary/Description/Changelog are auto-picked-up from at
-# android/fastlane/metadata/android/en-US/) didn't exist before that. See android/CLAUDE.md's
+# Only tags from v0.1.9 onward can be built as "fdroid" - the distribution product flavor didn't
+# exist before that. The fastlane metadata this recipe's Summary/Description/Changelog are
+# auto-picked-up from lives at the repo root (fastlane/metadata/android/en-US/) as of v0.1.12 -
+# the released fdroidserver only scans <repo>/fastlane, <repo>/src/<flavor>/fastlane and
+# <repo>/metadata, not the nested android/fastlane/ it sat in through v0.1.11. See android/CLAUDE.md's
 # "F-Droid" section for the full rationale.
 
 Categories:
@@ -46,9 +48,11 @@ Builds:
   # `git rev-parse vX.Y.Z^{commit}` (note the `^{commit}` dereference - `git tag -a` makes an
   # annotated tag object, and a bare `git rev-parse vX.Y.Z` returns *that* object's hash, not the
   # commit it points to).
-  - versionName: 0.1.11
-    versionCode: 12
-    commit: 59d08e7bbf510816f6b20481d5a4cf289854a4c0
+  - versionName: 0.1.12
+    versionCode: 13
+    # TODO before pushing to the fdroiddata MR: replace with `git rev-parse v0.1.12^{commit}`
+    # once the v0.1.12 tag is pushed.
+    commit: 0000000000000000000000000000000000000000
     # subdir is the directory where the `build` dir is generated, i.e. the "app" Gradle module -
     # android/app/build/... - so fdroidserver's default flavor scan finds
     # <subdir>/build/outputs/apk/fdroid/release with no explicit `output:` needed. Gradle still
@@ -66,5 +70,5 @@ AllowedAPKSigningKeys: 3c7b738a4be737b5ed376eb686f9d507d4779d715e6d73a0306e2d7b7
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 0.1.11
-CurrentVersionCode: 12
+CurrentVersion: 0.1.12
+CurrentVersionCode: 13

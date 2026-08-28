@@ -1,0 +1,1 @@
+Moved the Fastlane metadata to the repository root so F-Droid's release server picks up the app description, screenshots and changelogs. No app behavior changes.

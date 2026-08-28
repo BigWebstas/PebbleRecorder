@@ -89,6 +89,9 @@ See each directory's own docs for more detail on its build setup.
 
 See the [Releases page](https://github.com/BigWebstas/PebbleRecorder/releases) for downloadable `.apk`/`.pbw` artifacts of each version.
 
+### [v0.1.12](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.12)
+- Moved the Fastlane metadata to the repository root so F-Droid's release server picks up the app description, screenshots and changelogs (its released tooling doesn't scan nested paths). No app behavior changes.
+
 ### [v0.1.11](https://github.com/BigWebstas/PebbleRecorder/releases/tag/v0.1.11)
 - Fixed F-Droid reproducible build: disabled the AGP "Dependency metadata" signing block (Play Console-only, unused here) that F-Droid's binary scanner rejected. No app behavior changes.
 
