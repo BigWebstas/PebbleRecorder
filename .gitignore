@@ -14,3 +14,5 @@ android/keystore.properties
 
 # Release artifacts
 dist/
+
+.idea/
