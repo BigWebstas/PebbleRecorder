@@ -30,4 +30,7 @@
     <string name="install_watchapp_no_handler">No app installed can open a .pbw file - is the Pebble/Core companion app installed?</string>
     <string name="reboot_rearm_notification_title">Tap to re-enable the watch trigger</string>
     <string name="reboot_rearm_notification_text">Your phone restarted - open PebbleRecorder once to fully re-arm it for the watch button.</string>
+    <string name="widget_status_idle">Idle</string>
+    <string name="widget_status_recording">Recording</string>
+    <string name="widget_status_paused">Paused</string>
 </resources>
