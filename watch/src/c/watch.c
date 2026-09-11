@@ -2,7 +2,7 @@
 
 // Pebble apps have no runtime API to read their own appinfo version, so this is kept in sync
 // with watch/package.json's "version" field by hand.
-#define APP_VERSION "1.0.3"
+#define APP_VERSION "1.0.4"
 
 // Max distance (px) a touch may travel between touchdown and liftoff and still count as a tap
 // rather than a swipe/drag. Anything past this is ignored.

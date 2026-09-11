@@ -1,0 +1,1 @@
+The watch app now checks in with the phone as soon as it launches, showing a "Connected" banner on success or "Phone app not responding" if the phone side is stuck.
