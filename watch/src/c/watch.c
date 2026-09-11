@@ -8,6 +8,12 @@
 // rather than a swipe/drag. Anything past this is ignored.
 #define TOUCH_TAP_SLOP_PX 24
 
+// How long to wait after launch (or reconnect) for the phone to push a STATUS reply before
+// flagging it as unresponsive. The phone side replies as soon as the watchapp opens (see
+// PebbleListenerService.onAppOpened), so this only fires when something's actually wrong -
+// the service isn't running/bound, or the companion app rejected the message.
+#define PHONE_CHECK_TIMEOUT_MS 3000
+
 // Values sent watch -> phone via MESSAGE_KEY_COMMAND.
 typedef enum {
   COMMAND_STOP = 0,
@@ -40,6 +46,7 @@ static Window *s_window;
 static TextLayer *s_status_layer;
 static TextLayer *s_timer_layer;
 static TextLayer *s_version_layer;
+static TextLayer *s_banner_layer;
 static Layer *s_icon_layer;
 static AppState s_state = APP_STATE_NO_PHONE;
 static time_t s_recording_start_time;
@@ -48,6 +55,8 @@ static char s_timer_buffer[12];
 static GColor s_icon_color;
 static GPoint s_touch_down_point; // touchdown coords, for tap-vs-swipe classification
 static bool s_touch_is_tap;       // gesture still qualifies as a tap (hasn't travelled too far)
+static AppTimer *s_phone_check_timer;
+static bool s_got_phone_reply;
 
 // Draws a mic icon by default, swapping to a record (filled circle) icon while actively
 // recording, a stop (filled square) icon while idle (ready to start), and a pause (two bars)
@@ -165,6 +174,39 @@ static void prv_set_state(AppState state) {
   }
 }
 
+static void prv_show_banner(const char *text) {
+  text_layer_set_text(s_banner_layer, text);
+  layer_set_hidden(text_layer_get_layer(s_banner_layer), false);
+}
+
+static void prv_hide_banner(void) {
+  layer_set_hidden(text_layer_get_layer(s_banner_layer), true);
+}
+
+static void prv_cancel_phone_check(void) {
+  if (s_phone_check_timer) {
+    app_timer_cancel(s_phone_check_timer);
+    s_phone_check_timer = NULL;
+  }
+}
+
+static void prv_phone_check_timeout(void *data) {
+  s_phone_check_timer = NULL;
+  if (!s_got_phone_reply) {
+    prv_show_banner("Phone app not responding");
+  }
+}
+
+// Called on launch (and on bluetooth reconnect) to flag a phone that's connected over bluetooth
+// but whose companion/Android app never replies - e.g. the service isn't running or the
+// companion app rejected the message. A healthy phone replies almost immediately (see
+// PebbleListenerService.onAppOpened), so this timeout only trips when something's wrong.
+static void prv_start_phone_check(void) {
+  s_got_phone_reply = false;
+  prv_cancel_phone_check();
+  s_phone_check_timer = app_timer_register(PHONE_CHECK_TIMEOUT_MS, prv_phone_check_timeout, NULL);
+}
+
 static AppState prv_pending_state_for_command(Command command) {
   switch (command) {
     case COMMAND_START:  return APP_STATE_STARTING;
@@ -270,6 +312,10 @@ static void prv_inbox_received_handler(DictionaryIterator *iterator, void *conte
     return;
   }
 
+  s_got_phone_reply = true;
+  prv_cancel_phone_check();
+  prv_hide_banner();
+
   switch ((Status)status_tuple->value->int32) {
     case STATUS_IDLE:
       prv_set_state(APP_STATE_IDLE);
@@ -290,14 +336,19 @@ static void prv_inbox_received_handler(DictionaryIterator *iterator, void *conte
 }
 
 static void prv_outbox_failed_handler(DictionaryIterator *iterator, AppMessageResult reason, void *context) {
+  prv_cancel_phone_check();
+  prv_hide_banner();
   prv_set_state(APP_STATE_NO_PHONE);
 }
 
 static void prv_bluetooth_connection_handler(bool connected) {
   if (!connected) {
+    prv_cancel_phone_check();
+    prv_hide_banner();
     prv_set_state(APP_STATE_NO_PHONE);
   } else if (s_state == APP_STATE_NO_PHONE) {
     prv_set_state(APP_STATE_IDLE);
+    prv_start_phone_check();
   }
 }
 
@@ -328,7 +379,20 @@ static void prv_window_load(Window *window) {
   text_layer_set_text(s_version_layer, "v" APP_VERSION);
   layer_add_child(window_layer, text_layer_get_layer(s_version_layer));
 
-  prv_set_state(connection_service_peek_pebble_app_connection() ? APP_STATE_IDLE : APP_STATE_NO_PHONE);
+  // Overlaid on top; hidden unless prv_show_banner flags a phone-side problem.
+  s_banner_layer = text_layer_create(GRect(0, 0, bounds.size.w, 18));
+  text_layer_set_text_alignment(s_banner_layer, GTextAlignmentCenter);
+  text_layer_set_font(s_banner_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD));
+  text_layer_set_background_color(s_banner_layer, PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
+  text_layer_set_text_color(s_banner_layer, GColorWhite);
+  layer_set_hidden(text_layer_get_layer(s_banner_layer), true);
+  layer_add_child(window_layer, text_layer_get_layer(s_banner_layer));
+
+  bool connected = connection_service_peek_pebble_app_connection();
+  prv_set_state(connected ? APP_STATE_IDLE : APP_STATE_NO_PHONE);
+  if (connected) {
+    prv_start_phone_check();
+  }
 
   // Touch platforms (e.g. Pebble Time 2 / emery): a tap toggles start/pause. No-op elsewhere.
   if (touch_service_is_enabled()) {
@@ -338,9 +402,11 @@ static void prv_window_load(Window *window) {
 
 static void prv_window_unload(Window *window) {
   touch_service_unsubscribe();
+  prv_cancel_phone_check();
   text_layer_destroy(s_status_layer);
   text_layer_destroy(s_timer_layer);
   text_layer_destroy(s_version_layer);
+  text_layer_destroy(s_banner_layer);
   layer_destroy(s_icon_layer);
 }
 

@@ -565,6 +565,18 @@ class PebbleListenerService : BasePebbleListenerService() {
 
     override fun onAppOpened(watchappUUID: UUID, watch: WatchIdentifier) {
         Log.d(TAG, "Watch app $watchappUUID opened on $watch")
+        if (watchappUUID == WatchProtocol.APP_UUID) {
+            // Push current status as soon as the watchapp opens, so the watch can flag a stuck/
+            // unresponsive phone side immediately instead of waiting for the user to press a
+            // button and get a silent failure.
+            replyToWatch(currentStatus(), watch)
+        }
+    }
+
+    private fun currentStatus(): Int = when {
+        recorder == null -> WatchProtocol.STATUS_IDLE
+        isPaused -> WatchProtocol.STATUS_PAUSED
+        else -> WatchProtocol.STATUS_RECORDING
     }
 
     override fun onAppClosed(watchappUUID: UUID, watch: WatchIdentifier) {
