@@ -14,6 +14,9 @@
 // the service isn't running/bound, or the companion app rejected the message.
 #define PHONE_CHECK_TIMEOUT_MS 3000
 
+// How long the "Connected" success banner stays up before auto-hiding.
+#define CONNECTED_BANNER_MS 1500
+
 // Values sent watch -> phone via MESSAGE_KEY_COMMAND.
 typedef enum {
   COMMAND_STOP = 0,
@@ -56,7 +59,9 @@ static GColor s_icon_color;
 static GPoint s_touch_down_point; // touchdown coords, for tap-vs-swipe classification
 static bool s_touch_is_tap;       // gesture still qualifies as a tap (hasn't travelled too far)
 static AppTimer *s_phone_check_timer;
+static AppTimer *s_banner_hide_timer;
 static bool s_got_phone_reply;
+static bool s_phone_check_pending; // true from launch/reconnect until a reply arrives or it times out
 
 // Draws a mic icon by default, swapping to a record (filled circle) icon while actively
 // recording, a stop (filled square) icon while idle (ready to start), and a pause (two bars)
@@ -174,16 +179,41 @@ static void prv_set_state(AppState state) {
   }
 }
 
-static void prv_show_banner(const char *text) {
+static void prv_cancel_banner_hide(void) {
+  if (s_banner_hide_timer) {
+    app_timer_cancel(s_banner_hide_timer);
+    s_banner_hide_timer = NULL;
+  }
+}
+
+static void prv_hide_banner(void) {
+  prv_cancel_banner_hide();
+  layer_set_hidden(text_layer_get_layer(s_banner_layer), true);
+}
+
+static void prv_show_banner_with_color(const char *text, GColor background) {
+  prv_cancel_banner_hide();
+  text_layer_set_background_color(s_banner_layer, background);
   text_layer_set_text(s_banner_layer, text);
   layer_set_hidden(text_layer_get_layer(s_banner_layer), false);
 }
 
-static void prv_hide_banner(void) {
-  layer_set_hidden(text_layer_get_layer(s_banner_layer), true);
+static void prv_show_error_banner(const char *text) {
+  prv_show_banner_with_color(text, PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
+}
+
+static void prv_banner_hide_timeout(void *data) {
+  s_banner_hide_timer = NULL;
+  prv_hide_banner();
+}
+
+static void prv_show_connected_banner(void) {
+  prv_show_banner_with_color("Connected", PBL_IF_COLOR_ELSE(GColorGreen, GColorBlack));
+  s_banner_hide_timer = app_timer_register(CONNECTED_BANNER_MS, prv_banner_hide_timeout, NULL);
 }
 
 static void prv_cancel_phone_check(void) {
+  s_phone_check_pending = false;
   if (s_phone_check_timer) {
     app_timer_cancel(s_phone_check_timer);
     s_phone_check_timer = NULL;
@@ -192,8 +222,9 @@ static void prv_cancel_phone_check(void) {
 
 static void prv_phone_check_timeout(void *data) {
   s_phone_check_timer = NULL;
+  s_phone_check_pending = false;
   if (!s_got_phone_reply) {
-    prv_show_banner("Phone app not responding");
+    prv_show_error_banner("Phone app not responding");
   }
 }
 
@@ -203,7 +234,10 @@ static void prv_phone_check_timeout(void *data) {
 // PebbleListenerService.onAppOpened), so this timeout only trips when something's wrong.
 static void prv_start_phone_check(void) {
   s_got_phone_reply = false;
-  prv_cancel_phone_check();
+  s_phone_check_pending = true;
+  if (s_phone_check_timer) {
+    app_timer_cancel(s_phone_check_timer);
+  }
   s_phone_check_timer = app_timer_register(PHONE_CHECK_TIMEOUT_MS, prv_phone_check_timeout, NULL);
 }
 
@@ -312,11 +346,18 @@ static void prv_inbox_received_handler(DictionaryIterator *iterator, void *conte
     return;
   }
 
-  s_got_phone_reply = true;
-  prv_cancel_phone_check();
-  prv_hide_banner();
+  Status status = (Status)status_tuple->value->int32;
 
-  switch ((Status)status_tuple->value->int32) {
+  s_got_phone_reply = true;
+  bool was_pending = s_phone_check_pending;
+  prv_cancel_phone_check();
+  if (was_pending && status != STATUS_ERROR) {
+    prv_show_connected_banner();
+  } else {
+    prv_hide_banner();
+  }
+
+  switch (status) {
     case STATUS_IDLE:
       prv_set_state(APP_STATE_IDLE);
       break;
@@ -379,10 +420,10 @@ static void prv_window_load(Window *window) {
   text_layer_set_text(s_version_layer, "v" APP_VERSION);
   layer_add_child(window_layer, text_layer_get_layer(s_version_layer));
 
-  // Overlaid on top; hidden unless prv_show_banner flags a phone-side problem.
-  s_banner_layer = text_layer_create(GRect(0, 0, bounds.size.w, 18));
+  // Overlaid on top; hidden unless a phone check is reporting success/failure.
+  s_banner_layer = text_layer_create(GRect(0, 0, bounds.size.w, 46));
   text_layer_set_text_alignment(s_banner_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_banner_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD));
+  text_layer_set_font(s_banner_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
   text_layer_set_background_color(s_banner_layer, PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
   text_layer_set_text_color(s_banner_layer, GColorWhite);
   layer_set_hidden(text_layer_get_layer(s_banner_layer), true);
@@ -403,6 +444,7 @@ static void prv_window_load(Window *window) {
 static void prv_window_unload(Window *window) {
   touch_service_unsubscribe();
   prv_cancel_phone_check();
+  prv_cancel_banner_hide();
   text_layer_destroy(s_status_layer);
   text_layer_destroy(s_timer_layer);
   text_layer_destroy(s_version_layer);
