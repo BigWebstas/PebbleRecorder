@@ -1,0 +1,1 @@
+Added a home-screen widget showing live recording state, and fixed the settings screen to properly follow the system light/dark theme.

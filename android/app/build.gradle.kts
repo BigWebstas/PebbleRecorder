@@ -20,8 +20,8 @@ android {
         applicationId = "com.pebblerecorder.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 17
-        versionName = "0.1.16"
+        versionCode = 18
+        versionName = "0.1.17"
     }
 
     // AGP embeds a "Dependency metadata" signing block by default (Play Console integrity
