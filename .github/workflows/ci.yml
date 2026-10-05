@@ -31,12 +31,9 @@ jobs:
           cache: 'gradle'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
 
       - name: Build Debug APKs
         working-directory: android
