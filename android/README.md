@@ -78,3 +78,21 @@ rejects any extra signing block.
   Kotlin DSL.
 - **`buildToolsVersion` is pinned** to avoid AGP's default pick triggering a
   download-and-license-accept flow.
+
+## Automated Releases (GitHub Actions)
+
+Releases can be built and published via `.github/workflows/release.yml` when a tag matching `v*` is pushed (or triggered manually via `workflow_dispatch`).
+
+### Required GitHub Secrets
+
+- `KEYSTORE_BASE64` — base64-encoded release `.jks` file (e.g. `base64 -w 0 ~/.android/pebblerecorder-release.jks`).
+- `KEYSTORE_PASSWORD` — keystore password.
+- `KEY_ALIAS` — key alias in the keystore.
+- `KEY_PASSWORD` — key password.
+- `PLAY_STORE_JSON_KEY` *(optional)* — Google Play Console service account credentials JSON. If omitted, Google Play upload is safely skipped with a notice.
+
+### F-Droid & Google Play Distribution
+
+- **F-Droid**: F-Droid does not have a direct upload API; it builds from source on its own servers. For reproducible builds, F-Droid's update bot (`UpdateCheckMode: Tags` in `packaging/fdroid/com.pebblerecorder.app.yml`) monitors GitHub Releases for `PebbleRecorder-vX.Y.Z-fdroid.apk`, verifies the build hash matches, and publishes it. The GitHub Release published by this workflow provides this required binary asset automatically.
+- **Google Play**: The workflow builds the signed Android App Bundle (`PebbleRecorder-vX.Y.Z.aab`) and uploads it to the configured track (`internal`, `alpha`, `beta`, or `production`, defaulting to `internal` or repository variable `PLAY_STORE_TRACK`) along with release notes from `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`.
+
