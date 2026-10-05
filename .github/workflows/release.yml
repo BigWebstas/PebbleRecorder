@@ -1,0 +1,176 @@
+name: Release & Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      play_track:
+        description: 'Google Play track'
+        required: true
+        default: 'internal'
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+      publish_to_play:
+        description: 'Publish to Google Play (if service account configured)'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+
+      - name: Set up Release Signing Key
+        id: setup_signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::KEYSTORE_BASE64 secret is not configured. Release builds require release signing."
+            exit 1
+          fi
+
+          KEYSTORE_PATH="${GITHUB_WORKSPACE}/android/app/release.jks"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+
+          cat <<EOF > android/keystore.properties
+          storeFile=$KEYSTORE_PATH
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Determine Version & Prepare Changelogs
+        id: version_info
+        run: |
+          VERSION=$(grep -E 'versionName\s*=\s*' android/app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_CODE=$(grep -E 'versionCode\s*=\s*' android/app/build.gradle.kts | head -n1 | sed -E 's/.*=\s*([0-9]+).*/\1/')
+
+          TAG="${GITHUB_REF_NAME}"
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ]; then
+            TAG="v${VERSION}"
+          fi
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+
+          CHANGELOG_SRC="fastlane/metadata/android/en-US/changelogs/${VERSION_CODE}.txt"
+          if [ -f "$CHANGELOG_SRC" ]; then
+            echo "changelog_file=${CHANGELOG_SRC}" >> "$GITHUB_OUTPUT"
+          else
+            echo "changelog_file=" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Prepare Google Play whatsnew directory format (whatsnew-<locale>)
+          mkdir -p distribution/whatsnew
+          if [ -f "$CHANGELOG_SRC" ]; then
+            cp "$CHANGELOG_SRC" distribution/whatsnew/whatsnew-en-US
+          fi
+
+      - name: Build Android Release Artifacts
+        working-directory: android
+        run: |
+          ./gradlew :app:assembleRelease :app:bundleGithubRelease
+
+      - name: Package Release Assets
+        run: |
+          TAG="${{ steps.version_info.outputs.tag }}"
+          mkdir -p dist
+
+          # 1. GitHub flavor APK (includes bundled Pebble watchapp asset)
+          cp android/app/build/outputs/apk/github/release/app-github-release.apk "dist/PebbleRecorder-${TAG}.apk"
+
+          # 2. F-Droid flavor APK (without bundled Pebble watchapp, reference binary for reproducible build)
+          cp android/app/build/outputs/apk/fdroid/release/app-fdroid-release.apk "dist/PebbleRecorder-${TAG}-fdroid.apk"
+
+          # 3. Android App Bundle (AAB) for Google Play distribution
+          cp android/app/build/outputs/bundle/githubRelease/app-github-release.aab "dist/PebbleRecorder-${TAG}.aab"
+
+          # 4. Watchapp PBW asset
+          if [ -f watch/build/watch.pbw ]; then
+            cp watch/build/watch.pbw dist/watch.pbw
+          elif [ -f android/app/src/github/assets/watch.pbw ]; then
+            cp android/app/src/github/assets/watch.pbw dist/watch.pbw
+          fi
+
+          ls -lh dist/
+
+      - name: Verify F-Droid APK Signature
+        run: |
+          TAG="${{ steps.version_info.outputs.tag }}"
+          EXPECTED_FPRINT="3c7b738a4be737b5ed376eb686f9d507d4779d715e6d73a0306e2d7b7203852c"
+          
+          FDROID_APK="dist/PebbleRecorder-${TAG}-fdroid.apk"
+          CERT_FPRINT=$(apksigner verify --print-certs "$FDROID_APK" | grep "SHA-256 digest:" | head -n1 | awk '{print $NF}')
+          
+          echo "Expected certificate digest: $EXPECTED_FPRINT"
+          echo "Actual APK certificate digest: $CERT_FPRINT"
+          
+          if [ "$CERT_FPRINT" != "$EXPECTED_FPRINT" ]; then
+            echo "::error::F-Droid APK signing certificate does not match packaging/fdroid/com.pebblerecorder.app.yml AllowedAPKSigningKeys!"
+            exit 1
+          fi
+
+      - name: Publish GitHub Release (Powers F-Droid Updates)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version_info.outputs.tag }}
+          name: ${{ steps.version_info.outputs.tag }}
+          body_path: ${{ steps.version_info.outputs.changelog_file }}
+          files: |
+            dist/PebbleRecorder-${{ steps.version_info.outputs.tag }}.apk
+            dist/PebbleRecorder-${{ steps.version_info.outputs.tag }}-fdroid.apk
+            dist/PebbleRecorder-${{ steps.version_info.outputs.tag }}.aab
+            dist/watch.pbw
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to Google Play Store
+        if: ${{ (github.event_name == 'push' || inputs.publish_to_play) && secrets.PLAY_STORE_JSON_KEY != '' }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_JSON_KEY }}
+          packageName: com.pebblerecorder.app
+          releaseFiles: dist/PebbleRecorder-${{ steps.version_info.outputs.tag }}.aab
+          track: ${{ inputs.play_track || vars.PLAY_STORE_TRACK || 'internal' }}
+          whatsNewDirectory: distribution/whatsnew
+
+      - name: Notice on Google Play Upload
+        if: ${{ (github.event_name == 'push' || inputs.publish_to_play) && secrets.PLAY_STORE_JSON_KEY == '' }}
+        run: |
+          echo "::notice::Google Play upload was skipped because PLAY_STORE_JSON_KEY secret is not configured."
