@@ -1,0 +1,1 @@
+New live spectrogram on the main screen while recording, Material icons on the buttons, and a "Check for updates" button (GitHub builds). The watch button is now labelled "Install on Pebble".
