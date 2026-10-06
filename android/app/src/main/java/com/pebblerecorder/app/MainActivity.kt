@@ -86,6 +86,11 @@ class MainActivity : AppCompatActivity() {
 
         setUpGeminiSettings()
 
+        // savedInstanceState == null: only on a fresh launch, so rotating doesn't re-pop the dialog.
+        if (savedInstanceState == null && resources.getBoolean(R.bool.has_update_checker)) {
+            checkForUpdate()
+        }
+
         requestPermissions.launch(requiredPermissions())
 
         lifecycleScope.launch {
@@ -192,6 +197,52 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         } catch (e: ActivityNotFoundException) {
             Toast.makeText(this, R.string.install_watchapp_no_handler, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Asks GitHub Releases for a newer version and, if there is one, offers to install it. */
+    private fun checkForUpdate() {
+        lifecycleScope.launch {
+            val installed = packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
+            // A failed check (offline, rate limited) is silent - it'll just run again next launch.
+            val update = UpdateChecker.findUpdate(installed).getOrNull() ?: return@launch
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle(R.string.update_available_title)
+                .setMessage(getString(R.string.update_available_message, update.version, installed))
+                .setPositiveButton(R.string.update_install_button) { _, _ -> downloadAndInstall(update) }
+                .setNegativeButton(R.string.update_later_button, null)
+                .show()
+        }
+    }
+
+    private fun downloadAndInstall(update: AvailableUpdate) {
+        // Android gates installs per source app; send the user to grant it before downloading.
+        if (!packageManager.canRequestPackageInstalls()) {
+            Toast.makeText(this, R.string.update_allow_installs, Toast.LENGTH_LONG).show()
+            startActivity(
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")),
+            )
+            return
+        }
+        Toast.makeText(this, R.string.update_downloading, Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            UpdateChecker.download(this@MainActivity, update)
+                .onSuccess { apk ->
+                    val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", apk)
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        },
+                    )
+                }
+                .onFailure {
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.update_download_failed, it.message),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
         }
     }
 

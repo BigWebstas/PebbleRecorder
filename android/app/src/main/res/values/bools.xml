@@ -2,4 +2,6 @@
 <resources>
     <!-- Overridden per distribution flavor in src/github and src/fdroid - see app/build.gradle.kts. -->
     <bool name="has_bundled_watchapp">false</bool>
+    <!-- Same: only the github flavor self-updates from GitHub Releases; F-Droid handles its own. -->
+    <bool name="has_update_checker">false</bool>
 </resources>
