@@ -28,6 +28,13 @@
         android:gravity="center"
         android:textStyle="bold" />
 
+    <com.pebblerecorder.app.SpectrogramView
+        android:id="@+id/spectrogram"
+        android:layout_width="280dp"
+        android:layout_height="80dp"
+        android:layout_marginTop="12dp"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/permissions_text"
         android:layout_width="wrap_content"
@@ -48,6 +55,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
+        android:drawableStart="@drawable/ic_folder"
+        android:drawablePadding="8dp"
         android:text="@string/choose_folder_button" />
 
     <CheckBox
@@ -76,10 +85,22 @@
 
     <Button
         android:id="@+id/install_watchapp_button"
+        android:drawableStart="@drawable/ic_watch"
+        android:drawablePadding="8dp"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
         android:text="@string/install_watchapp_button" />
+
+    <Button
+        android:id="@+id/check_updates_button"
+        android:drawableStart="@drawable/ic_system_update"
+        android:drawablePadding="8dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:visibility="gone"
+        android:text="@string/check_updates_button" />
 
     <TextView
         android:id="@+id/version_text"

@@ -25,9 +25,12 @@
     <string name="status_idle">Idle</string>
     <string name="status_recording">Recording</string>
     <string name="status_paused">Paused</string>
-    <string name="install_watchapp_button">Install the app on Pebble</string>
+    <string name="install_watchapp_button">Install on Pebble</string>
     <string name="install_watchapp_missing">No bundled watchapp found - rebuild the Android app after building watch/</string>
     <string name="install_watchapp_no_handler">No app installed can open a .pbw file - is the Pebble/Core companion app installed?</string>
+    <string name="check_updates_button">Check for updates</string>
+    <string name="update_up_to_date">You\'re on the latest version</string>
+    <string name="update_check_failed">Couldn\'t check for updates - are you online?</string>
     <string name="update_available_title">Update available</string>
     <string name="update_available_message">Version %1$s is out (you have %2$s). Download and install it now?</string>
     <string name="update_install_button">Update</string>
