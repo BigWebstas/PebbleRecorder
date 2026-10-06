@@ -24,6 +24,8 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
@@ -39,6 +41,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var permissionsText: TextView
     private lateinit var recordingStatusText: TextView
     private lateinit var batterySettingsButton: Button
+    private lateinit var spectrogram: SpectrogramView
+    private var spectrogramJob: Job? = null
 
     private val pickFolder = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
@@ -72,6 +76,7 @@ class MainActivity : AppCompatActivity() {
         permissionsText = findViewById(R.id.permissions_text)
         recordingStatusText = findViewById(R.id.recording_status_text)
         batterySettingsButton = findViewById(R.id.battery_settings_button)
+        spectrogram = findViewById(R.id.spectrogram)
         batterySettingsButton.setOnClickListener { openBatterySettings() }
         findViewById<Button>(R.id.choose_folder_button).setOnClickListener {
             pickFolder.launch(null)
@@ -87,8 +92,13 @@ class MainActivity : AppCompatActivity() {
         setUpGeminiSettings()
 
         // savedInstanceState == null: only on a fresh launch, so rotating doesn't re-pop the dialog.
-        if (savedInstanceState == null && resources.getBoolean(R.bool.has_update_checker)) {
-            checkForUpdate()
+        findViewById<Button>(R.id.check_updates_button).apply {
+            // Only the github flavor self-updates - see app/build.gradle.kts.
+            if (resources.getBoolean(R.bool.has_update_checker)) {
+                visibility = View.VISIBLE
+                setOnClickListener { checkForUpdate(userInitiated = true) }
+                if (savedInstanceState == null) checkForUpdate(userInitiated = false)
+            }
         }
 
         requestPermissions.launch(requiredPermissions())
@@ -119,9 +129,38 @@ class MainActivity : AppCompatActivity() {
         showTranscriptionErrorIfPresent(intent)
     }
 
+    // The spectrogram opens its own mic capture, which has no business running (or holding the
+    // mic) once the user has left the app - so it lives exactly between onStart and onStop.
+    override fun onStart() {
+        super.onStart()
+        spectrogramJob = lifecycleScope.launch {
+            RecordingStatus.state.collectLatest { showSpectrogram(it) }
+        }
+    }
+
+    override fun onStop() {
+        spectrogramJob?.cancel()
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         updateStatus()
+    }
+
+    /**
+     * Shows the live spectrogram while recording (frozen while paused, hidden when idle). Cancelled
+     * and restarted by collectLatest on every state change, which also releases the mic.
+     */
+    private suspend fun showSpectrogram(state: RecordingState) {
+        // A second mic capture next to the recorder's own is only allowed from Android 10.
+        val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        spectrogram.visibility = if (supported && state != RecordingState.IDLE) View.VISIBLE else View.GONE
+        if (state == RecordingState.IDLE) spectrogram.clear()
+        val hasMic = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!supported || !hasMic || state != RecordingState.RECORDING) return
+        micSpectrum().collect { spectrogram.addColumn(it) }
     }
 
     /** Shows the error carried by a tapped "transcription failed" notification (see PebbleListenerService). */
@@ -201,11 +240,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Asks GitHub Releases for a newer version and, if there is one, offers to install it. */
-    private fun checkForUpdate() {
+    private fun checkForUpdate(userInitiated: Boolean) {
         lifecycleScope.launch {
             val installed = packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
-            // A failed check (offline, rate limited) is silent - it'll just run again next launch.
-            val update = UpdateChecker.findUpdate(installed).getOrNull() ?: return@launch
+            val result = UpdateChecker.findUpdate(installed)
+            // The launch-time check stays silent unless there's an update (a failure just retries
+            // next launch); a button press always answers.
+            if (userInitiated) {
+                if (result.isFailure) {
+                    Toast.makeText(this@MainActivity, R.string.update_check_failed, Toast.LENGTH_LONG).show()
+                } else if (result.getOrNull() == null) {
+                    Toast.makeText(this@MainActivity, R.string.update_up_to_date, Toast.LENGTH_SHORT).show()
+                }
+            }
+            val update = result.getOrNull() ?: return@launch
             AlertDialog.Builder(this@MainActivity)
                 .setTitle(R.string.update_available_title)
                 .setMessage(getString(R.string.update_available_message, update.version, installed))
