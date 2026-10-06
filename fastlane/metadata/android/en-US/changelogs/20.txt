@@ -1,0 +1,1 @@
+The app now checks GitHub for a newer release when you open it and offers to download and install it (GitHub builds only; F-Droid builds keep updating through F-Droid).
