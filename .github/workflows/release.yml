@@ -29,6 +29,9 @@ jobs:
   release:
     name: Build & Publish Release
     runs-on: ubuntu-latest
+    env:
+      # The secrets context isn't allowed in step-level `if:`, so expose it via env.
+      HAS_PLAY_KEY: ${{ secrets.PLAY_STORE_JSON_KEY != '' }}
 
     steps:
       - name: Checkout repository
@@ -45,6 +48,9 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Default packages include the retired 'tools' package, which makes sdkmanager fail.
+          packages: ''
 
       - name: Install Android SDK packages
         run: |
@@ -136,7 +142,7 @@ jobs:
           EXPECTED_FPRINT="3c7b738a4be737b5ed376eb686f9d507d4779d715e6d73a0306e2d7b7203852c"
           
           FDROID_APK="dist/PebbleRecorder-${TAG}-fdroid.apk"
-          CERT_FPRINT=$(apksigner verify --print-certs "$FDROID_APK" | grep "SHA-256 digest:" | head -n1 | awk '{print $NF}')
+          CERT_FPRINT=$("$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$FDROID_APK" | grep "SHA-256 digest:" | head -n1 | awk '{print $NF}')
           
           echo "Expected certificate digest: $EXPECTED_FPRINT"
           echo "Actual APK certificate digest: $CERT_FPRINT"
@@ -161,7 +167,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to Google Play Store
-        if: ${{ (github.event_name == 'push' || inputs.publish_to_play) && secrets.PLAY_STORE_JSON_KEY != '' }}
+        if: ${{ (github.event_name == 'push' || inputs.publish_to_play) && env.HAS_PLAY_KEY == 'true' }}
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_JSON_KEY }}
@@ -171,6 +177,6 @@ jobs:
           whatsNewDirectory: distribution/whatsnew
 
       - name: Notice on Google Play Upload
-        if: ${{ (github.event_name == 'push' || inputs.publish_to_play) && secrets.PLAY_STORE_JSON_KEY == '' }}
+        if: ${{ (github.event_name == 'push' || inputs.publish_to_play) && env.HAS_PLAY_KEY != 'true' }}
         run: |
           echo "::notice::Google Play upload was skipped because PLAY_STORE_JSON_KEY secret is not configured."
