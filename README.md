@@ -4,6 +4,16 @@ Use your Pebble watch as a remote start/stop button for audio recording on your
 phone. Press a button on the watch and a companion Android app records straight
 to a folder you choose — no need to touch your phone.
 
+<p align="center">
+  <img src="docs/screenshots/watch-recording.png" alt="Watch app while recording" width="160">
+  <img src="docs/screenshots/android-recording.png" alt="Android app with the live spectrogram" width="300">
+  <img src="docs/screenshots/android-main.png" alt="Android app, idle" width="300">
+</p>
+
+While a recording is running, the Android app also draws a live spectrogram of the
+microphone (Android 10+). GitHub builds have a **Check for updates** button; F-Droid
+builds update through F-Droid.
+
 ## How it works
 
 Two apps:
