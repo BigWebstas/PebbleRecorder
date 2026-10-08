@@ -14,14 +14,16 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.materialswitch.MaterialSwitch
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
+import com.google.android.material.color.DynamicColors
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
@@ -67,10 +69,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // The theme is already Theme.AppCompat.DayNight and every view uses theme attributes (no
+        // The theme is Theme.Material3.DayNight and every view uses theme attributes (no
         // hardcoded colours), so this only makes the "follow the phone's light/dark setting"
         // intent explicit for all API levels rather than leaning on the AppCompat default.
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        DynamicColors.applyToActivityIfAvailable(this)
         setContentView(R.layout.activity_main)
 
         permissionsText = findViewById(R.id.permissions_text)
@@ -86,6 +89,18 @@ class MainActivity : AppCompatActivity() {
             visibility = if (resources.getBoolean(R.bool.has_bundled_watchapp)) View.VISIBLE else View.GONE
             setOnClickListener { installWatchapp() }
         }
+
+        val advancedToggle = findViewById<MaterialButton>(R.id.advanced_toggle_button)
+        val advancedBox = findViewById<View>(R.id.advanced_box)
+        val hasAdvanced = resources.getBoolean(R.bool.has_bundled_watchapp) || resources.getBoolean(R.bool.has_update_checker)
+        advancedToggle.visibility = if (hasAdvanced) View.VISIBLE else View.GONE
+        advancedToggle.setOnClickListener {
+            val show = advancedBox.visibility != View.VISIBLE
+            advancedBox.visibility = if (show) View.VISIBLE else View.GONE
+            advancedToggle.setText(if (show) R.string.hide_advanced else R.string.show_advanced)
+            advancedToggle.setIconResource(if (show) R.drawable.ic_expand_less else R.drawable.ic_expand_more)
+        }
+
         findViewById<TextView>(R.id.version_text).text =
             getString(R.string.version_label, packageManager.getPackageInfo(packageName, 0).versionName)
 
@@ -168,7 +183,7 @@ class MainActivity : AppCompatActivity() {
         val message = intent?.getStringExtra(EXTRA_TRANSCRIPTION_ERROR) ?: return
         // Clear it so a config change (rotation) doesn't re-pop the dialog.
         intent.removeExtra(EXTRA_TRANSCRIPTION_ERROR)
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(R.string.transcription_failed_notification_title)
             .setMessage(message)
             .setPositiveButton(android.R.string.ok, null)
@@ -176,15 +191,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setUpGeminiSettings() {
-        val enabledCheckbox = findViewById<CheckBox>(R.id.gemini_enabled_checkbox)
+        val enabledSwitch = findViewById<MaterialSwitch>(R.id.gemini_enabled_switch)
         val apiKeyInput = findViewById<EditText>(R.id.gemini_api_key_input)
-        val locationCheckbox = findViewById<CheckBox>(R.id.gemini_location_checkbox)
+        val locationSwitch = findViewById<MaterialSwitch>(R.id.gemini_location_switch)
 
-        enabledCheckbox.isChecked = GeminiPrefs.isEnabled(this)
+        enabledSwitch.isChecked = GeminiPrefs.isEnabled(this)
         apiKeyInput.setText(GeminiPrefs.getApiKey(this))
-        locationCheckbox.isChecked = GeminiPrefs.isLocationEnabled(this)
+        locationSwitch.isChecked = GeminiPrefs.isLocationEnabled(this)
 
-        enabledCheckbox.setOnCheckedChangeListener { _, isChecked ->
+        enabledSwitch.setOnCheckedChangeListener { _, isChecked ->
             GeminiPrefs.setEnabled(this, isChecked)
         }
         apiKeyInput.addTextChangedListener(
@@ -196,7 +211,7 @@ class MainActivity : AppCompatActivity() {
                 }
             },
         )
-        locationCheckbox.setOnCheckedChangeListener { _, isChecked ->
+        locationSwitch.setOnCheckedChangeListener { _, isChecked ->
             GeminiPrefs.setLocationEnabled(this, isChecked)
             if (isChecked) {
                 // Transcripts still work fine without it if the user declines - location is just
@@ -254,7 +269,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             val update = result.getOrNull() ?: return@launch
-            AlertDialog.Builder(this@MainActivity)
+            MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(R.string.update_available_title)
                 .setMessage(getString(R.string.update_available_message, update.version, installed))
                 .setPositiveButton(R.string.update_install_button) { _, _ -> downloadAndInstall(update) }

@@ -77,6 +77,7 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
+    implementation(libs.google.material)
     implementation(libs.androidx.documentfile)
     implementation(libs.pebblekit.client)
     implementation(libs.kotlinx.coroutines.android)

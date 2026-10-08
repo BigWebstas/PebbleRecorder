@@ -25,6 +25,8 @@
     <string name="status_idle">Idle</string>
     <string name="status_recording">Recording</string>
     <string name="status_paused">Paused</string>
+    <string name="show_advanced">Show advanced</string>
+    <string name="hide_advanced">Hide advanced</string>
     <string name="install_watchapp_button">Install on Pebble</string>
     <string name="install_watchapp_missing">No bundled watchapp found - rebuild the Android app after building watch/</string>
     <string name="install_watchapp_no_handler">No app installed can open a .pbw file - is the Pebble/Core companion app installed?</string>
