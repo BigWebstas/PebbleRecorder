@@ -122,16 +122,6 @@
 
     </LinearLayout>
 
-    <Button
-        android:id="@+id/check_updates_button"
-        android:drawableStart="@drawable/ic_system_update"
-        android:drawablePadding="8dp"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:visibility="gone"
-        android:text="@string/check_updates_button" />
-
     <TextView
         android:id="@+id/version_text"
         android:layout_width="wrap_content"
