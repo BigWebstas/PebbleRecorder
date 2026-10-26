@@ -1,7 +1,7 @@
 {
   "name": "watch",
   "author": "BW",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {},
