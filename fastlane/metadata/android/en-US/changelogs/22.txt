@@ -1,0 +1,1 @@
+Material 3 look with rounded buttons and switch toggles for Gemini settings. "Install on Pebble" and the update checker now live under Show advanced.
