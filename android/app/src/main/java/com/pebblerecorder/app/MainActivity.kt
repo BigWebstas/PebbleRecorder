@@ -124,6 +124,7 @@ class MainActivity : AppCompatActivity() {
             // Only the github flavor self-updates - see app/build.gradle.kts.
             if (resources.getBoolean(R.bool.has_update_checker)) {
                 visibility = View.VISIBLE
+                findViewById<View>(R.id.updates_section_label).visibility = View.VISIBLE
                 setOnClickListener { checkForUpdate(userInitiated = true) }
                 if (savedInstanceState == null) checkForUpdate(userInitiated = false)
             }
