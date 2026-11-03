@@ -51,7 +51,7 @@ sealed interface RecordingTarget {
             if (!copyToDestination(context, transcript, transcript.name, "text/markdown")) return
             transcript.delete()
         }
-        if (copyToDestination(context, file, displayName, "audio/mp4")) file.delete()
+        if (copyToDestination(context, file, displayName, RecordingFormat.mimeTypeOf(displayName))) file.delete()
     }
 
     /** Cleans up an abandoned in-progress recording, e.g. if MediaRecorder failed to start. */
@@ -140,7 +140,7 @@ fun createRecordingTarget(context: Context, finalName: String): RecordingTarget?
  * Empty files are discarded; the rest are moved to their destination as-is, with any transcript.
  */
 fun recoverOrphanedRecordings(context: Context) {
-    recordingsDir(context).listFiles { f -> f.extension == "m4a" }?.forEach { file ->
+    recordingsDir(context).listFiles { f -> RecordingFormat.isRecordingFile(f.name) }?.forEach { file ->
         if (file.length() == 0L) {
             file.delete()
             return@forEach

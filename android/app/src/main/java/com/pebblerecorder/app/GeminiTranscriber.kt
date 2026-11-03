@@ -78,7 +78,7 @@ object GeminiTranscriber {
                     )
                 }
 
-                val requestBody = buildRequestBody(audioBytes)
+                val requestBody = buildRequestBody(audioBytes, RecordingFormat.mimeTypeOf(audioUri.lastPathSegment))
                 val (responseCode, responseBody) = try {
                     postToGemini(apiKey, requestBody)
                 } catch (e: IOException) {
@@ -107,11 +107,11 @@ object GeminiTranscriber {
             }
         }
 
-    private fun buildRequestBody(audioBytes: ByteArray): String {
+    private fun buildRequestBody(audioBytes: ByteArray, mimeType: String): String {
         val part = JSONObject().put(
             "inlineData",
             JSONObject()
-                .put("mimeType", "audio/mp4")
+                .put("mimeType", mimeType)
                 .put("data", Base64.encodeToString(audioBytes, Base64.NO_WRAP)),
         )
         val textPart = JSONObject().put(

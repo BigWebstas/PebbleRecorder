@@ -25,6 +25,7 @@
     <string name="status_idle">Idle</string>
     <string name="status_recording">Recording</string>
     <string name="status_paused">Paused</string>
+    <string name="recording_progress">%1$s · %2$s</string>
     <string name="show_advanced">Show advanced</string>
     <string name="hide_advanced">Hide advanced</string>
     <string name="install_watchapp_button">Install on Pebble</string>
@@ -45,4 +46,22 @@
     <string name="widget_status_idle">Idle</string>
     <string name="widget_status_recording">Recording</string>
     <string name="widget_status_paused">Paused</string>
+    <string name="mic_label">Microphone</string>
+    <string name="mic_automatic">Automatic</string>
+    <string name="mic_builtin">Built-in</string>
+    <string name="mic_wired">Wired headset</string>
+    <string name="mic_usb">USB</string>
+    <string name="format_label">Format</string>
+    <string name="format_aac">M4A (AAC)</string>
+    <string name="format_opus">OGG (Opus)</string>
+    <string name="quality_label">Quality</string>
+    <string name="quality_low">Low - voice, smallest files</string>
+    <string name="quality_standard">Standard</string>
+    <string name="quality_high">High - largest files</string>
+    <string name="webhook_label">Local webhook</string>
+    <string name="webhook_url">POST %1$s\nAuthorization: Bearer token\n(/toggle, /start, /stop, /status)</string>
+    <string name="webhook_copy_token">Copy token</string>
+    <string name="webhook_regenerate_token">New token</string>
+    <string name="webhook_token_copied">Token copied</string>
+    <string name="webhook_token_regenerated">New token generated - update your webhook</string>
 </resources>
