@@ -22,7 +22,6 @@ import com.pebblerecorder.app.widget.RecordingStatusWidgetProvider
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.documentfile.provider.DocumentFile
 import io.rebble.pebblekit2.client.BasePebbleListenerService
 import io.rebble.pebblekit2.client.DefaultPebbleSender
 import io.rebble.pebblekit2.common.model.PebbleDictionary
@@ -74,10 +73,10 @@ class PebbleListenerService : BasePebbleListenerService() {
     private var isPaused = false
 
     /**
-     * Finished recordings whose transcript hasn't come back from Gemini yet. They stay in their
-     * hidden in-progress form (SAF dotfile / MediaStore IS_PENDING) until transcription finishes,
-     * so a folder-watcher sees the audio and its transcript appear together. Tracked here so
-     * [onDestroy] can still reveal them if the process is torn down mid-transcription.
+     * Finished recordings not yet copied to the recording folder (still transcribing, or copying).
+     * They stay in private storage until then, so a folder-watcher sees the audio and its
+     * transcript appear together. Tracked here so [onDestroy] can still deliver them if the
+     * service is torn down mid-transcription.
      */
     private val pendingTranscriptionTargets = CopyOnWriteArraySet<RecordingTarget>()
 
@@ -85,6 +84,7 @@ class PebbleListenerService : BasePebbleListenerService() {
         super.onCreate()
         sender = DefaultPebbleSender(this)
         createNotificationChannel()
+        coroutineScope.launch(Dispatchers.IO) { recoverOrphanedRecordings(this@PebbleListenerService) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -146,7 +146,7 @@ class PebbleListenerService : BasePebbleListenerService() {
         }
 
         val finalName = "recording-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}-rec.m4a"
-        val target = createRecordingTarget(finalName)
+        val target = createRecordingTarget(this, finalName)
         if (target == null) {
             Log.w(TAG, "Failed to create $finalName - no writable folder configured and no Downloads fallback")
             return WatchProtocol.STATUS_ERROR
@@ -155,8 +155,10 @@ class PebbleListenerService : BasePebbleListenerService() {
         return try {
             promoteToRecording()
 
-            val pfd = contentResolver.openFileDescriptor(target.uri, "w")
-                ?: error("openFileDescriptor returned null for ${target.uri}")
+            val pfd = ParcelFileDescriptor.open(
+                target.file,
+                ParcelFileDescriptor.MODE_WRITE_ONLY or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE,
+            )
             outputFile = pfd
             recordingTarget = target
             // Captured now (where the recording started), not at stop time, so it heads into
@@ -190,40 +192,6 @@ class PebbleListenerService : BasePebbleListenerService() {
             releaseRecorder()
             WatchProtocol.STATUS_ERROR
         }
-    }
-
-    /**
-     * Prefers the user-chosen SAF folder (RecordingFolderPrefs); falls back to the public
-     * Downloads/PebbleRecorder folder via MediaStore if none is set (or it's no longer writable -
-     * e.g. the user revoked the permission), so recording works before anyone's opened the app's
-     * settings. MediaStore.Downloads only exists on API 29+; below that, a missing folder is just
-     * an error, same as before this fallback existed.
-     */
-    private fun createRecordingTarget(finalName: String): RecordingTarget? {
-        val folderUri = RecordingFolderPrefs.get(this)
-        if (folderUri != null) {
-            val folder = DocumentFile.fromTreeUri(this, folderUri)
-            if (folder != null && folder.canWrite()) {
-                // Record into a hidden dotfile so other apps watching the folder (a Syncthing
-                // sync, a file browser, Joplin's own folder scan, ...) don't pick up a
-                // partial/corrupt file mid-recording. There's no real cross-app file lock
-                // available over SAF - most apps (Syncthing included) don't honor advisory locks
-                // - so a naming convention every filesystem tool already understands is the
-                // reliable way to hide a WIP file. Revealed (renamed) once MediaRecorder finishes.
-                val file = folder.createFile("audio/mp4", ".$finalName")
-                if (file != null) {
-                    return RecordingTarget.Saf(file, finalName)
-                }
-                Log.w(TAG, "Failed to create .$finalName in configured recording folder")
-            } else {
-                Log.w(TAG, "Configured recording folder is not writable, falling back to Downloads")
-            }
-        }
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            return null
-        }
-        return createDownloadsRecordingTarget(this, finalName)
     }
 
     private fun pauseRecording(): Int {
@@ -267,13 +235,7 @@ class PebbleListenerService : BasePebbleListenerService() {
         return try {
             recorder?.stop()
             if (finishedTarget != null) {
-                if (GeminiPrefs.isEnabled(this)) {
-                    // Keep the recording hidden until the transcript is in (or has definitively
-                    // failed) - see transcribeThenFinalize.
-                    transcribeThenFinalize(finishedTarget, location)
-                } else {
-                    finishedTarget.finalize(this)
-                }
+                finishRecording(finishedTarget, location)
             }
             WatchProtocol.STATUS_IDLE
         } catch (e: Exception) {
@@ -307,17 +269,19 @@ class PebbleListenerService : BasePebbleListenerService() {
     }
 
     /**
-     * Transcribes [target] (retrying transient failures - see [GeminiTranscriber.transcribe]),
-     * writes the transcript sibling, then finalizes the recording. The recording is only revealed
-     * once this completes, so folder-watching apps see the audio and its transcript together.
+     * If Gemini is on, transcribes [target] (retrying transient failures - see
+     * [GeminiTranscriber.transcribe]) and writes the transcript sibling; then finalizes the
+     * recording. The audio is only copied into the recording folder once this completes, so
+     * folder-watching apps see the audio and its transcript together.
      *
      * The recording is finalized even when transcription ultimately fails - a missing transcript
      * shouldn't cost the user their audio.
      */
-    private fun transcribeThenFinalize(target: RecordingTarget, location: Location?) {
+    private fun finishRecording(target: RecordingTarget, location: Location?) {
         pendingTranscriptionTargets.add(target)
-        coroutineScope.launch {
+        coroutineScope.launch(Dispatchers.IO) {
             try {
+                if (!GeminiPrefs.isEnabled(this@PebbleListenerService)) return@launch
                 GeminiTranscriber.transcribe(this@PebbleListenerService, target.uri)
                     .onSuccess { transcript ->
                         val locationTag = location?.let {
@@ -338,15 +302,7 @@ class PebbleListenerService : BasePebbleListenerService() {
     }
 
     private fun writeTranscript(target: RecordingTarget, transcript: String, location: Location?, locationTag: String?) {
-        val transcriptName = target.displayName.substringBeforeLast('.').removeSuffix("-rec").plus("-txt.md")
-        val transcriptUri = target.createSibling(this, transcriptName, "text/markdown")
-        if (transcriptUri == null) {
-            Log.w(TAG, "Failed to create $transcriptName")
-            return
-        }
-        contentResolver.openOutputStream(transcriptUri)?.use {
-            it.write(buildTranscriptMarkdown(transcript, location, locationTag).toByteArray(Charsets.UTF_8))
-        }
+        target.transcriptFile.writeText(buildTranscriptMarkdown(transcript, location, locationTag))
     }
 
     private fun buildTranscriptMarkdown(transcript: String, location: Location?, locationTag: String?): String =
@@ -590,8 +546,8 @@ class PebbleListenerService : BasePebbleListenerService() {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to stop recording during teardown", e)
         }
-        // Reveal any recordings still waiting on a transcript - they won't get one now, but the
-        // audio shouldn't be left stuck in its hidden in-progress form.
+        // Deliver any recordings still waiting on a transcript - they won't get one now, but the
+        // audio shouldn't be left stuck in private storage.
         pendingTranscriptionTargets.forEach { runCatching { it.finalize(this) } }
         pendingTranscriptionTargets.clear()
         recorder?.release()
