@@ -58,7 +58,7 @@
     <string name="quality_low">Low - voice, smallest files</string>
     <string name="quality_standard">Standard</string>
     <string name="quality_high">High - largest files</string>
-    <string name="webhook_label">Local webhook</string>
+    <string name="webhook_label">Local webhook (Pebble Index)</string>
     <string name="webhook_url">POST %1$s\nAuthorization: Bearer token\n(/toggle, /start, /stop, /status)</string>
     <string name="webhook_copy_token">Copy token</string>
     <string name="webhook_regenerate_token">New token</string>
