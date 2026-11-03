@@ -157,6 +157,8 @@ class PebbleListenerService : BasePebbleListenerService() {
         coroutineScope.launch {
             val message = mutableMapOf<UInt, PebbleDictionaryItem>(
                 WatchProtocol.KEY_STATUS to PebbleDictionaryItem.Int32(status),
+                WatchProtocol.KEY_TOUCH_ENABLED to
+                    PebbleDictionaryItem.Int32(if (WatchPrefs.isTouchEnabled(this@PebbleListenerService)) 1 else 0),
             )
             if (status == WatchProtocol.STATUS_RECORDING || status == WatchProtocol.STATUS_PAUSED) {
                 message[WatchProtocol.KEY_ELAPSED] = PebbleDictionaryItem.Int32(elapsedSeconds())

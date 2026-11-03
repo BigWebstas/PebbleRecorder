@@ -26,7 +26,8 @@
       "COMMAND",
       "STATUS",
       "ELAPSED",
-      "LEVEL"
+      "LEVEL",
+      "TOUCH_ENABLED"
     ],
     "companionApp": {
       "android": {

@@ -372,12 +372,26 @@ static void prv_sync_elapsed(DictionaryIterator *iterator, bool paused) {
   prv_update_timer_text();
 }
 
+// Touch is on by default; the phone can turn it off via MESSAGE_KEY_TOUCH_ENABLED (sent with
+// every STATUS reply). touch_service_is_enabled() is false on platforms without a touchscreen.
+static void prv_set_touch_enabled(bool enabled) {
+  touch_service_unsubscribe();
+  if (enabled && touch_service_is_enabled()) {
+    touch_service_subscribe(prv_touch_handler, NULL);
+  }
+}
+
 static void prv_inbox_received_handler(DictionaryIterator *iterator, void *context) {
   Tuple *level_tuple = dict_find(iterator, MESSAGE_KEY_LEVEL);
   if (level_tuple) {
     s_level = level_tuple->value->int32;
     layer_mark_dirty(s_level_layer);
     return;
+  }
+
+  Tuple *touch_tuple = dict_find(iterator, MESSAGE_KEY_TOUCH_ENABLED);
+  if (touch_tuple) {
+    prv_set_touch_enabled(touch_tuple->value->int32 != 0);
   }
 
   Tuple *status_tuple = dict_find(iterator, MESSAGE_KEY_STATUS);
@@ -481,9 +495,7 @@ static void prv_window_load(Window *window) {
   }
 
   // Touch platforms (e.g. Pebble Time 2 / emery): a tap toggles start/pause. No-op elsewhere.
-  if (touch_service_is_enabled()) {
-    touch_service_subscribe(prv_touch_handler, NULL);
-  }
+  prv_set_touch_enabled(true);
 }
 
 static void prv_window_unload(Window *window) {

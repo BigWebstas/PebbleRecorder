@@ -114,6 +114,11 @@ class MainActivity : AppCompatActivity() {
         setUpRecordingSettings()
         setUpWebhookSettings()
 
+        findViewById<MaterialSwitch>(R.id.watch_touch_switch).apply {
+            isChecked = WatchPrefs.isTouchEnabled(this@MainActivity)
+            setOnCheckedChangeListener { _, isChecked -> WatchPrefs.setTouchEnabled(this@MainActivity, isChecked) }
+        }
+
         // savedInstanceState == null: only on a fresh launch, so rotating doesn't re-pop the dialog.
         findViewById<Button>(R.id.check_updates_button).apply {
             // Only the github flavor self-updates - see app/build.gradle.kts.
