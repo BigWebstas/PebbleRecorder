@@ -2,7 +2,7 @@
 
 // Pebble apps have no runtime API to read their own appinfo version, so this is kept in sync
 // with watch/package.json's "version" field by hand.
-#define APP_VERSION "1.0.5"
+#define APP_VERSION "1.1.0"
 
 // Max distance (px) a touch may travel between touchdown and liftoff and still count as a tap
 // rather than a swipe/drag. Anything past this is ignored.
@@ -51,6 +51,8 @@ static TextLayer *s_timer_layer;
 static TextLayer *s_version_layer;
 static TextLayer *s_banner_layer;
 static Layer *s_icon_layer;
+static Layer *s_level_layer;
+static int s_level; // mic level 0..100 streamed from the phone while recording
 static AppState s_state = APP_STATE_NO_PHONE;
 static time_t s_recording_start_time;
 static time_t s_pause_started_at; // 0 when not currently paused
@@ -93,6 +95,17 @@ static void prv_icon_layer_update_proc(Layer *layer, GContext *ctx) {
       break;
     }
   }
+}
+
+// Level meter: an outlined bar filled in proportion to the phone's mic level, so it's obvious at
+// a glance that the phone is actually hearing something.
+static void prv_level_layer_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  graphics_context_set_fill_color(ctx, s_icon_color);
+  graphics_context_set_stroke_color(ctx, s_icon_color);
+  graphics_draw_rect(ctx, bounds);
+  int fill = (bounds.size.w - 4) * s_level / 100;
+  graphics_fill_rect(ctx, GRect(2, 2, fill, bounds.size.h - 4), 0, GCornerNone);
 }
 
 static void prv_update_timer_text(void) {
@@ -144,6 +157,11 @@ static void prv_set_state(AppState state) {
   text_layer_set_text_color(s_timer_layer, foreground);
   text_layer_set_text_color(s_version_layer, foreground);
   layer_mark_dirty(s_icon_layer);
+
+  // The phone streams the mic level whenever the app is open and connected, recording or not.
+  s_level = 0;
+  layer_set_hidden(s_level_layer, state == APP_STATE_NO_PHONE || state == APP_STATE_ERROR);
+  layer_mark_dirty(s_level_layer);
 
   tick_timer_service_unsubscribe();
   switch (state) {
@@ -340,7 +358,28 @@ static void prv_click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_DOWN, prv_pause_resume_click_handler);
 }
 
+// The phone reports how long the recording has actually run (pauses excluded) alongside
+// RECORDING/PAUSED. Adopting it keeps the timer right when the watch app was closed or
+// disconnected mid-recording and prv_set_state would otherwise restart it from zero.
+static void prv_sync_elapsed(DictionaryIterator *iterator, bool paused) {
+  Tuple *elapsed_tuple = dict_find(iterator, MESSAGE_KEY_ELAPSED);
+  if (!elapsed_tuple) {
+    return;
+  }
+  time_t now = time(NULL);
+  s_recording_start_time = now - elapsed_tuple->value->int32;
+  s_pause_started_at = paused ? now : 0;
+  prv_update_timer_text();
+}
+
 static void prv_inbox_received_handler(DictionaryIterator *iterator, void *context) {
+  Tuple *level_tuple = dict_find(iterator, MESSAGE_KEY_LEVEL);
+  if (level_tuple) {
+    s_level = level_tuple->value->int32;
+    layer_mark_dirty(s_level_layer);
+    return;
+  }
+
   Tuple *status_tuple = dict_find(iterator, MESSAGE_KEY_STATUS);
   if (!status_tuple) {
     return;
@@ -363,10 +402,12 @@ static void prv_inbox_received_handler(DictionaryIterator *iterator, void *conte
       break;
     case STATUS_RECORDING:
       prv_set_state(APP_STATE_RECORDING);
+      prv_sync_elapsed(iterator, false);
       vibes_short_pulse();
       break;
     case STATUS_PAUSED:
       prv_set_state(APP_STATE_PAUSED);
+      prv_sync_elapsed(iterator, true);
       vibes_short_pulse();
       break;
     case STATUS_ERROR:
@@ -401,21 +442,25 @@ static void prv_window_load(Window *window) {
   layer_set_update_proc(s_icon_layer, prv_icon_layer_update_proc);
   layer_add_child(window_layer, s_icon_layer);
 
-  s_status_layer = text_layer_create(GRect(0, 72, bounds.size.w, 20));
+  s_level_layer = layer_create(GRect(bounds.size.w / 5, 130, bounds.size.w * 3 / 5, 10));
+  layer_set_update_proc(s_level_layer, prv_level_layer_update_proc);
+  layer_add_child(window_layer, s_level_layer);
+
+  s_status_layer = text_layer_create(GRect(0, 64, bounds.size.w, 30));
   text_layer_set_text_alignment(s_status_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+  text_layer_set_font(s_status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   text_layer_set_background_color(s_status_layer, GColorClear);
   layer_add_child(window_layer, text_layer_get_layer(s_status_layer));
 
-  s_timer_layer = text_layer_create(GRect(0, 96, bounds.size.w, 20));
+  s_timer_layer = text_layer_create(GRect(0, 92, bounds.size.w, 34));
   text_layer_set_text_alignment(s_timer_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_timer_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
+  text_layer_set_font(s_timer_layer, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD));
   text_layer_set_background_color(s_timer_layer, GColorClear);
   layer_add_child(window_layer, text_layer_get_layer(s_timer_layer));
 
-  s_version_layer = text_layer_create(GRect(0, bounds.size.h - 20, bounds.size.w, 18));
+  s_version_layer = text_layer_create(GRect(0, bounds.size.h - 24, bounds.size.w, 22));
   text_layer_set_text_alignment(s_version_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_version_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
+  text_layer_set_font(s_version_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
   text_layer_set_background_color(s_version_layer, GColorClear);
   text_layer_set_text(s_version_layer, "v" APP_VERSION);
   layer_add_child(window_layer, text_layer_get_layer(s_version_layer));
@@ -450,6 +495,7 @@ static void prv_window_unload(Window *window) {
   text_layer_destroy(s_version_layer);
   text_layer_destroy(s_banner_layer);
   layer_destroy(s_icon_layer);
+  layer_destroy(s_level_layer);
 }
 
 static void prv_init(void) {

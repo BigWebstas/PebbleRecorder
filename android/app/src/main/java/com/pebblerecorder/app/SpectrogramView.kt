@@ -4,10 +4,12 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Rect
 import android.util.AttributeSet
 import android.view.View
+import android.view.ViewOutlineProvider
 
 private const val COLUMNS = 240
 
@@ -38,6 +40,14 @@ class SpectrogramView @JvmOverloads constructor(
 
     init {
         clear()
+        // Material 3 "medium" shape: 12dp corners, matching the app's cards and buttons.
+        val radius = 12 * resources.displayMetrics.density
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, radius)
+            }
+        }
+        clipToOutline = true
     }
 
     fun addColumn(column: FloatArray) {

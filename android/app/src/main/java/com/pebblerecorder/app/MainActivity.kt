@@ -3,6 +3,8 @@ package com.pebblerecorder.app
 import android.Manifest
 import android.app.ActivityManager
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -12,12 +14,14 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
+import android.text.format.Formatter
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import androidx.appcompat.app.AppCompatActivity
@@ -28,6 +32,8 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import java.util.Locale
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
@@ -42,6 +48,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var permissionsText: TextView
     private lateinit var recordingStatusText: TextView
+    private lateinit var recordingProgressText: TextView
     private lateinit var batterySettingsButton: Button
     private lateinit var spectrogram: SpectrogramView
     private var spectrogramJob: Job? = null
@@ -78,6 +85,7 @@ class MainActivity : AppCompatActivity() {
 
         permissionsText = findViewById(R.id.permissions_text)
         recordingStatusText = findViewById(R.id.recording_status_text)
+        recordingProgressText = findViewById(R.id.recording_progress_text)
         batterySettingsButton = findViewById(R.id.battery_settings_button)
         spectrogram = findViewById(R.id.spectrogram)
         batterySettingsButton.setOnClickListener { openBatterySettings() }
@@ -92,8 +100,6 @@ class MainActivity : AppCompatActivity() {
 
         val advancedToggle = findViewById<MaterialButton>(R.id.advanced_toggle_button)
         val advancedBox = findViewById<View>(R.id.advanced_box)
-        val hasAdvanced = resources.getBoolean(R.bool.has_bundled_watchapp) || resources.getBoolean(R.bool.has_update_checker)
-        advancedToggle.visibility = if (hasAdvanced) View.VISIBLE else View.GONE
         advancedToggle.setOnClickListener {
             val show = advancedBox.visibility != View.VISIBLE
             advancedBox.visibility = if (show) View.VISIBLE else View.GONE
@@ -105,6 +111,8 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.version_label, packageManager.getPackageInfo(packageName, 0).versionName)
 
         setUpGeminiSettings()
+        setUpRecordingSettings()
+        setUpWebhookSettings()
 
         // savedInstanceState == null: only on a fresh launch, so rotating doesn't re-pop the dialog.
         findViewById<Button>(R.id.check_updates_button).apply {
@@ -129,6 +137,22 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // "01:23 · 1.2 MB" under the status while a recording exists (running or paused).
+        lifecycleScope.launch {
+            RecordingStatus.state.combine(RecordingStatus.progress) { state, progress -> state to progress }
+                .collect { (state, progress) ->
+                    recordingProgressText.visibility = if (state == RecordingState.IDLE) View.GONE else View.VISIBLE
+                    val s = progress.elapsedSeconds
+                    val time = if (s >= 3600) {
+                        String.format(Locale.US, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
+                    } else {
+                        String.format(Locale.US, "%02d:%02d", s / 60, s % 60)
+                    }
+                    recordingProgressText.text =
+                        getString(R.string.recording_progress, time, Formatter.formatShortFileSize(this@MainActivity, progress.sizeBytes))
+                }
+        }
+
         // Arms PebbleListenerService as a persistent foreground service while we still have a
         // visible UI - required so it can later add the microphone type when a watch COMMAND
         // arrives, since Android forbids starting a *new* mic-type foreground service from the
@@ -148,6 +172,7 @@ class MainActivity : AppCompatActivity() {
     // mic) once the user has left the app - so it lives exactly between onStart and onStop.
     override fun onStart() {
         super.onStart()
+        refreshMicDropdown()
         spectrogramJob = lifecycleScope.launch {
             RecordingStatus.state.collectLatest { showSpectrogram(it) }
         }
@@ -188,6 +213,60 @@ class MainActivity : AppCompatActivity() {
             .setMessage(message)
             .setPositiveButton(android.R.string.ok, null)
             .show()
+    }
+
+    /** Format and quality are fixed lists; the microphone list is rebuilt in [onStart] as devices come and go. */
+    private fun setUpRecordingSettings() {
+        val formats = RecordingFormat.entries.filter { it.isSupported }
+        val qualities = RecordingQuality.entries
+        setUpDropdown(
+            R.id.format_dropdown, formats.map { getString(it.labelRes) },
+            formats.indexOf(RecordingSettings.format(this)),
+        ) { RecordingSettings.setFormat(this, formats[it]) }
+        setUpDropdown(
+            R.id.quality_dropdown, qualities.map { getString(it.labelRes) },
+            qualities.indexOf(RecordingSettings.quality(this)),
+        ) { RecordingSettings.setQuality(this, qualities[it]) }
+    }
+
+    private fun setUpWebhookSettings() {
+        val enabledSwitch = findViewById<MaterialSwitch>(R.id.webhook_switch)
+        val details = findViewById<View>(R.id.webhook_details)
+        findViewById<TextView>(R.id.webhook_url_text).text =
+            getString(R.string.webhook_url, "http://127.0.0.1:$WEBHOOK_PORT/toggle")
+
+        enabledSwitch.isChecked = WebhookPrefs.isEnabled(this)
+        details.visibility = if (enabledSwitch.isChecked) View.VISIBLE else View.GONE
+        enabledSwitch.setOnCheckedChangeListener { _, isChecked ->
+            WebhookPrefs.setEnabled(this, isChecked)
+            details.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+        findViewById<Button>(R.id.webhook_copy_token_button).setOnClickListener {
+            getSystemService(ClipboardManager::class.java)
+                .setPrimaryClip(ClipData.newPlainText("webhook token", WebhookPrefs.token(this)))
+            Toast.makeText(this, R.string.webhook_token_copied, Toast.LENGTH_SHORT).show()
+        }
+        findViewById<Button>(R.id.webhook_regenerate_button).setOnClickListener {
+            WebhookPrefs.regenerateToken(this)
+            Toast.makeText(this, R.string.webhook_token_regenerated, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun refreshMicDropdown() {
+        val mics = RecordingSettings.availableMics(this)
+        val saved = RecordingSettings.micKey(this)
+        // A saved mic that isn't connected right now shows as Automatic, which is what recording will use.
+        val selected = mics.indexOfFirst { it.key == saved } + 1
+        setUpDropdown(
+            R.id.mic_dropdown, listOf(getString(R.string.mic_automatic)) + mics.map { it.label }, selected,
+        ) { RecordingSettings.setMicKey(this, if (it == 0) null else mics[it - 1].key) }
+    }
+
+    private fun setUpDropdown(id: Int, items: List<String>, selected: Int, onSelected: (Int) -> Unit) {
+        val dropdown = findViewById<MaterialAutoCompleteTextView>(id)
+        dropdown.setSimpleItems(items.toTypedArray())
+        dropdown.setText(items[selected.coerceAtLeast(0)], false)
+        dropdown.setOnItemClickListener { _, _, position, _ -> onSelected(position) }
     }
 
     private fun setUpGeminiSettings() {
