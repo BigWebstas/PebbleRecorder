@@ -23,6 +23,7 @@ data class RecordingEntry(
     val name: String,
     val recordedAtMs: Long,
     val durationSec: Int,
+    val sizeBytes: Long = 0L,
     val audioUri: String? = null,
     val transcriptUri: String? = null,
     val transcript: TranscriptState = TranscriptState.NONE,
@@ -90,6 +91,7 @@ object RecordingLog {
         .put("name", e.name)
         .put("recordedAtMs", e.recordedAtMs)
         .put("durationSec", e.durationSec)
+        .put("sizeBytes", e.sizeBytes)
         .put("audioUri", e.audioUri)
         .put("transcriptUri", e.transcriptUri)
         .put("transcript", e.transcript.name)
@@ -101,6 +103,7 @@ object RecordingLog {
         name = o.getString("name"),
         recordedAtMs = o.getLong("recordedAtMs"),
         durationSec = o.getInt("durationSec"),
+        sizeBytes = o.optLong("sizeBytes", 0L),
         audioUri = o.optString("audioUri").takeIf { it.isNotEmpty() && it != "null" },
         transcriptUri = o.optString("transcriptUri").takeIf { it.isNotEmpty() && it != "null" },
         transcript = TranscriptState.entries.firstOrNull { it.name == o.optString("transcript") } ?: TranscriptState.NONE,

@@ -182,6 +182,8 @@ class MainActivity : AppCompatActivity() {
             findViewById(R.id.recordings_empty),
             findViewById(R.id.recordings_search_layout),
             findViewById(R.id.recordings_search),
+            findViewById(R.id.recordings_storage_bar),
+            findViewById(R.id.recordings_storage_text),
         )
         bindRecordingLog(recordingsList)
         setUpSections()

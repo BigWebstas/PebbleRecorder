@@ -98,32 +98,38 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
                 name = name,
                 recordedAtMs = recordedAt,
                 durationSec = durationSeconds(target.file),
+                sizeBytes = target.file.length(),
                 transcript = if (enabled) TranscriptState.PENDING else TranscriptState.NONE,
             ),
         )
         scope.launch(Dispatchers.IO) {
             try {
                 if (enabled) {
-                    transcribe(target.uri, target.file)
+                    transcribe(target.uri, target.file, bookmarks = bookmarks)
                         .onSuccess { transcript ->
                             val locationTag = location?.let {
                                 runCatching { reverseGeocodeTag(it) }.getOrNull()
                             }
-                            target.transcriptFile.writeText(
-                                transcriptMarkdown(
-                                    transcript, recordedAt, location?.latitude, location?.longitude,
-                                    locationTag, summaryFor(transcript), bookmarks,
-                                ),
+                            val markdown = transcriptMarkdown(
+                                transcript, recordedAt, location?.latitude, location?.longitude,
+                                locationTag, summaryFor(transcript), bookmarks,
                             )
+                            target.transcriptFile.writeText(markdown)
                             Log.d(TAG, "Transcribed $name")
-                            markTranscribed(name, transcript)
+                            markTranscribed(name, transcript, markdown)
                         }
                         .onFailure { markFailed(name, it) }
                 }
             } finally {
+                val totalBytes = target.file.length() +
+                    (if (target.transcriptFile.exists()) target.transcriptFile.length() else 0L)
                 val delivery = target.finalize(context)
                 RecordingLog.update(context, name) {
-                    it.copy(audioUri = delivery?.audioUri?.toString(), transcriptUri = delivery?.transcriptUri?.toString())
+                    it.copy(
+                        sizeBytes = totalBytes.takeIf { b -> b > 0L } ?: it.sizeBytes,
+                        audioUri = delivery?.audioUri?.toString(),
+                        transcriptUri = delivery?.transcriptUri?.toString(),
+                    )
                 }
                 pending.remove(target)
             }
@@ -170,7 +176,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
                                 ?.copyToDestination(context, transcriptFile, transcriptFile.name, "text/markdown")
                         }
                         RecordingLog.update(context, name) { it.copy(transcriptUri = written?.toString()) }
-                        markTranscribed(name, transcript)
+                        markTranscribed(name, transcript, markdown)
                     }
                     .onFailure { markFailed(name, it) }
             } finally {
@@ -189,19 +195,20 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
         uri: Uri,
         file: File,
         engine: TranscriptionEngine = TranscriptionPrefs.engine(context),
+        bookmarks: List<Int> = emptyList(),
     ): Result<String> =
         when (engine) {
-            TranscriptionEngine.GEMINI -> GeminiTranscriber.transcribe(context, uri)
+            TranscriptionEngine.GEMINI -> GeminiTranscriber.transcribe(context, uri, bookmarks)
             TranscriptionEngine.OPENAI -> OpenAiTranscriber.transcribe(context, uri)
             TranscriptionEngine.WHISPER -> WhisperTranscriber.transcribe(context, file)
         }
 
-    private fun markTranscribed(name: String, transcript: String) {
+    private fun markTranscribed(name: String, transcript: String, markdown: String = transcript) {
         RecordingLog.update(context, name) {
             it.copy(
                 transcript = TranscriptState.DONE,
                 preview = previewOf(transcript),
-                text = transcript.take(MAX_TEXT),
+                text = markdown.take(MAX_TEXT),
                 error = null,
             )
         }

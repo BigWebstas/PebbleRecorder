@@ -35,6 +35,9 @@ typedef enum {
 // How long a notice banner ("Transcribed") stays up.
 #define NOTICE_BANNER_MS 2500
 
+// Silence auto-stop threshold (1000 / 32768 ~= -30.3 dBFS) on the 0..100 (-60..0 dBFS) level bar.
+#define SILENCE_THRESHOLD_LEVEL 49
+
 // Values received phone -> watch via MESSAGE_KEY_STATUS.
 typedef enum {
   STATUS_IDLE = 0,
@@ -67,6 +70,7 @@ static AppState s_state = APP_STATE_NO_PHONE;
 static time_t s_recording_start_time;
 static time_t s_pause_started_at; // 0 when not currently paused
 static char s_timer_buffer[12];
+static char s_bookmark_banner_buffer[24];
 static GColor s_icon_color;
 static GPoint s_touch_down_point; // touchdown coords, for tap-vs-swipe classification
 static bool s_touch_is_tap;       // gesture still qualifies as a tap (hasn't travelled too far)
@@ -108,14 +112,28 @@ static void prv_icon_layer_update_proc(Layer *layer, GContext *ctx) {
 }
 
 // Level meter: an outlined bar filled in proportion to the phone's mic level, so it's obvious at
-// a glance that the phone is actually hearing something.
+// a glance that the phone is actually hearing something, with a vertical tick mark at the silence
+// auto-stop threshold.
 static void prv_level_layer_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
+  GRect bar = GRect(0, 3, bounds.size.w, bounds.size.h - 6);
   graphics_context_set_fill_color(ctx, s_icon_color);
   graphics_context_set_stroke_color(ctx, s_icon_color);
-  graphics_draw_rect(ctx, bounds);
-  int fill = (bounds.size.w - 4) * s_level / 100;
-  graphics_fill_rect(ctx, GRect(2, 2, fill, bounds.size.h - 4), 0, GCornerNone);
+  graphics_draw_rect(ctx, bar);
+  int inner_w = bar.size.w - 4;
+  int fill = inner_w * s_level / 100;
+  graphics_fill_rect(ctx, GRect(2, bar.origin.y + 2, fill, bar.size.h - 4), 0, GCornerNone);
+
+  int threshold_x = 2 + inner_w * SILENCE_THRESHOLD_LEVEL / 100;
+  graphics_draw_line(ctx, GPoint(threshold_x, 0), GPoint(threshold_x, bounds.size.h - 1));
+  if (fill >= threshold_x - 1) {
+    GColor bg = (s_state == APP_STATE_RECORDING)
+      ? PBL_IF_COLOR_ELSE(GColorRed, GColorWhite)
+      : (s_state == APP_STATE_PAUSED ? PBL_IF_COLOR_ELSE(GColorBlue, GColorWhite) : GColorWhite);
+    graphics_context_set_stroke_color(ctx, bg);
+    graphics_draw_line(ctx, GPoint(threshold_x, bar.origin.y + 2),
+                       GPoint(threshold_x, bar.origin.y + bar.size.h - 3));
+  }
 }
 
 static void prv_update_timer_text(void) {
@@ -325,7 +343,17 @@ static void prv_bookmark_click_handler(ClickRecognizerRef recognizer, void *cont
   }
   int32_t command_value = COMMAND_BOOKMARK;
   dict_write_int(iter, MESSAGE_KEY_COMMAND, &command_value, sizeof(command_value), true);
-  app_message_outbox_send();
+  if (app_message_outbox_send() != APP_MSG_OK) {
+    return;
+  }
+  int elapsed = (int)(time(NULL) - s_recording_start_time);
+  if (elapsed < 0) {
+    elapsed = 0;
+  }
+  snprintf(s_bookmark_banner_buffer, sizeof(s_bookmark_banner_buffer),
+           "Bookmark %02d:%02d", elapsed / 60, elapsed % 60);
+  prv_show_banner_with_color(s_bookmark_banner_buffer, GColorBlack);
+  s_banner_hide_timer = app_timer_register(CONNECTED_BANNER_MS, prv_banner_hide_timeout, NULL);
   vibes_short_pulse();
 }
 
@@ -395,10 +423,8 @@ static void prv_pause_resume_click_handler(ClickRecognizerRef recognizer, void *
 
 static void prv_click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, prv_select_click_handler);
-  window_single_click_subscribe(BUTTON_ID_UP, prv_pause_resume_click_handler);
+  window_single_click_subscribe(BUTTON_ID_UP, prv_bookmark_click_handler);
   window_single_click_subscribe(BUTTON_ID_DOWN, prv_pause_resume_click_handler);
-  // Hold DOWN to drop a bookmark while recording.
-  window_long_click_subscribe(BUTTON_ID_DOWN, 500, prv_bookmark_click_handler, NULL);
 }
 
 // The phone reports how long the recording has actually run (pauses excluded) alongside
@@ -452,10 +478,11 @@ static void prv_inbox_received_handler(DictionaryIterator *iterator, void *conte
 
   s_got_phone_reply = true;
   bool was_pending = s_phone_check_pending;
+  bool already_recording = (s_state == APP_STATE_RECORDING && status == STATUS_RECORDING);
   prv_cancel_phone_check();
   if (was_pending && status != STATUS_ERROR) {
     prv_show_connected_banner();
-  } else {
+  } else if (!already_recording) {
     prv_hide_banner();
   }
 
@@ -466,7 +493,9 @@ static void prv_inbox_received_handler(DictionaryIterator *iterator, void *conte
     case STATUS_RECORDING:
       prv_set_state(APP_STATE_RECORDING);
       prv_sync_elapsed(iterator, false);
-      vibes_short_pulse();
+      if (!already_recording) {
+        vibes_short_pulse();
+      }
       break;
     case STATUS_PAUSED:
       prv_set_state(APP_STATE_PAUSED);
@@ -505,7 +534,7 @@ static void prv_window_load(Window *window) {
   layer_set_update_proc(s_icon_layer, prv_icon_layer_update_proc);
   layer_add_child(window_layer, s_icon_layer);
 
-  s_level_layer = layer_create(GRect(bounds.size.w / 5, 130, bounds.size.w * 3 / 5, 10));
+  s_level_layer = layer_create(GRect(bounds.size.w / 5, 127, bounds.size.w * 3 / 5, 16));
   layer_set_update_proc(s_level_layer, prv_level_layer_update_proc);
   layer_add_child(window_layer, s_level_layer);
 

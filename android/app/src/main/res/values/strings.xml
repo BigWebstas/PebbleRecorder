@@ -27,6 +27,7 @@
     <string name="chip_folder">Folder: %1$s</string>
     <string name="chip_folder_default">Downloads/PebbleRecorder</string>
     <string name="storage_line">Saving to %1$s · %2$s free</string>
+    <string name="recordings_storage_summary">Recordings: %1$s · %2$s used · %3$s left on device</string>
     <string name="recent_section">Recent recordings</string>
     <string name="recordings_empty">Nothing recorded yet</string>
     <string name="play_button">Play</string>

@@ -6,6 +6,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import com.pebblerecorder.app.ui.MainActivity
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.log10
 import kotlin.math.sin
@@ -22,6 +23,12 @@ private const val HOP = 512
 /** Rows in each spectrum column handed to the UI: [FRAME]/2 FFT bins (0-8 kHz) averaged down. */
 const val SPECTRUM_ROWS = 64
 
+/** Silence auto-stop threshold (1000 / 32768 ~= -30.3 dBFS) mapped onto the -60..0 dBFS (0..1) level scale. */
+const val SILENCE_THRESHOLD_LEVEL = 0.495f
+
+/** One frame of spectrogram bins plus the instantaneous mic level (0..1 on the -60..0 dBFS scale). */
+class SpectrumFrame(val bins: FloatArray, val level: Float)
+
 // Full-scale sine = 0 dB. Quiet rooms sit near the floor, loud speech near the ceiling.
 private const val DB_FLOOR = -90f
 private const val DB_CEIL = -20f
@@ -36,7 +43,7 @@ private val WINDOW = FloatArray(FRAME) { (0.5 - 0.5 * cos(2 * PI * it / (FRAME -
  * collector is cancelled. Needs RECORD_AUDIO.
  */
 @SuppressLint("MissingPermission")
-fun micSpectrum(): Flow<FloatArray> = flow {
+fun micSpectrum(): Flow<SpectrumFrame> = flow {
     val minBuffer = AudioRecord.getMinBufferSize(
         SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
     )
@@ -55,13 +62,21 @@ fun micSpectrum(): Flow<FloatArray> = flow {
             if (record.read(hop, 0, HOP) <= 0) break
             // Slide the frame left by one hop and append the new samples.
             System.arraycopy(samples, HOP, samples, 0, FRAME - HOP)
-            for (i in 0 until HOP) samples[FRAME - HOP + i] = hop[i] / 32768f
+            var peak = 1
+            for (i in 0 until HOP) {
+                val sample = hop[i].toInt()
+                val a = abs(sample)
+                if (a > peak) peak = a
+                samples[FRAME - HOP + i] = sample / 32768f
+            }
             for (i in 0 until FRAME) {
                 re[i] = samples[i] * WINDOW[i]
                 im[i] = 0f
             }
             fft(re, im)
-            emit(toColumn(re, im))
+            val db = 20f * log10(peak / 32768f)
+            val level = ((db + 60f) / 60f).coerceIn(0f, 1f)
+            emit(SpectrumFrame(toColumn(re, im), level))
         }
     } finally {
         record.release()

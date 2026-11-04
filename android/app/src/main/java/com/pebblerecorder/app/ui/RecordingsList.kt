@@ -3,30 +3,39 @@ package com.pebblerecorder.app.ui
 import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
+import android.os.Environment
+import android.os.StatFs
 import android.text.Editable
 import android.text.TextWatcher
 import android.text.format.DateUtils
+import android.text.format.Formatter
 import android.view.LayoutInflater
 import android.view.View
+import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.PopupMenu
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.pebblerecorder.app.R
 import com.pebblerecorder.app.connectivity.PebbleListenerService
 import com.pebblerecorder.app.recording.RecordingEntry
 import com.pebblerecorder.app.recording.RecordingLog
 import com.pebblerecorder.app.recording.TranscriptState
+import com.pebblerecorder.app.recording.createRecordingTarget
+import com.pebblerecorder.app.recording.transcriptNameFor
 import com.pebblerecorder.app.settings.TranscriptionEngine
 import com.pebblerecorder.app.transcription.TranscriptFiles
 import com.pebblerecorder.app.transcription.renameSpeakers
 import com.pebblerecorder.app.transcription.speakersIn
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -49,6 +58,8 @@ class RecordingsList(
     private val empty: View,
     private val searchLayout: View,
     searchInput: EditText,
+    private val storageBar: LinearProgressIndicator,
+    private val storageText: TextView,
 ) {
     private var entries: List<RecordingEntry> = emptyList()
     private var query = ""
@@ -86,6 +97,42 @@ class RecordingsList(
         container.removeAllViews()
         val inflater = LayoutInflater.from(activity)
         shown.forEach { entry -> container.addView(row(inflater, entry)) }
+        updateStorageBar()
+    }
+
+    private fun updateStorageBar() {
+        val currentEntries = entries
+        activity.lifecycleScope.launch {
+            val (recordingsBytes, usedBytes, freeBytes, totalBytes) = withContext(Dispatchers.IO) {
+                val stat = StatFs(Environment.getExternalStorageDirectory().path)
+                val total = stat.totalBytes
+                val free = stat.availableBytes
+                val used = (total - free).coerceAtLeast(0L)
+                val recBytes = currentEntries.sumOf { entry ->
+                    val onDisk = listOfNotNull(entry.audioUri, entry.transcriptUri).sumOf { uriStr ->
+                        runCatching {
+                            activity.contentResolver.openAssetFileDescriptor(Uri.parse(uriStr), "r")?.use {
+                                it.length.coerceAtLeast(0L)
+                            } ?: 0L
+                        }.getOrDefault(0L)
+                    }
+                    when {
+                        onDisk > 0L -> onDisk
+                        entry.sizeBytes > 0L -> entry.sizeBytes
+                        else -> entry.durationSec * 4_000L + (entry.text?.length ?: 0)
+                    }
+                }
+                longArrayOf(recBytes, used, free, total)
+            }
+            val progress = ((usedBytes * 1000L) / totalBytes.coerceAtLeast(1L)).toInt().coerceIn(0, 1000)
+            storageBar.setProgressCompat(progress, true)
+            storageText.text = activity.getString(
+                R.string.recordings_storage_summary,
+                Formatter.formatShortFileSize(activity, recordingsBytes),
+                Formatter.formatShortFileSize(activity, usedBytes),
+                Formatter.formatShortFileSize(activity, freeBytes),
+            )
+        }
     }
 
     private fun matches(entry: RecordingEntry) =
@@ -99,8 +146,7 @@ class RecordingsList(
         val preview = view.findViewById<TextView>(R.id.recording_preview)
         preview.visibility = if (entry.preview == null) View.GONE else View.VISIBLE
         preview.text = entry.preview
-        // Tap the preview to read all of it (it's cut to two lines otherwise).
-        preview.setOnClickListener { preview.maxLines = if (preview.maxLines == 2) Int.MAX_VALUE else 2 }
+        preview.setOnClickListener { showTranscriptDialog(entry) }
 
         val play = view.findViewById<ImageButton>(R.id.play_button)
         play.visibility = if (entry.audioUri == null) View.INVISIBLE else View.VISIBLE
@@ -133,6 +179,8 @@ class RecordingsList(
                 chip.setText(R.string.chip_transcribed)
                 chip.setChipIconResource(R.drawable.ic_check)
                 chip.isChipIconVisible = true
+                chip.isClickable = true
+                chip.setOnClickListener { showTranscriptDialog(entry) }
             }
             TranscriptState.FAILED -> {
                 chip.visibility = View.VISIBLE
@@ -160,7 +208,7 @@ class RecordingsList(
                 menu.menu.add(0, i, i, activity.getString(R.string.menu_retranscribe, engineName(engine)))
             }
         }
-        if (entry.transcript == TranscriptState.DONE && entry.transcriptUri != null) {
+        if (entry.transcript == TranscriptState.DONE && (entry.transcriptUri != null || entry.text != null)) {
             menu.menu.add(0, MENU_RENAME, MENU_RENAME, R.string.menu_rename_speakers)
         }
         menu.menu.add(0, MENU_DELETE, MENU_DELETE, R.string.menu_delete)
@@ -184,9 +232,11 @@ class RecordingsList(
     )
 
     private fun renameSpeakers(entry: RecordingEntry) {
-        val uri = Uri.parse(entry.transcriptUri ?: return)
+        val uri = entry.transcriptUri?.let(Uri::parse)
         activity.lifecycleScope.launch {
-            val text = withContext(Dispatchers.IO) { TranscriptFiles.read(activity, uri) }
+            val text = withContext(Dispatchers.IO) {
+                uri?.let { TranscriptFiles.read(activity, it) }
+            } ?: entry.text ?: entry.preview
             val speakers = text?.let(::speakersIn).orEmpty()
             if (text == null || speakers.isEmpty()) {
                 Toast.makeText(activity, R.string.no_speakers, Toast.LENGTH_SHORT).show()
@@ -213,17 +263,30 @@ class RecordingsList(
         }
     }
 
-    private fun applyRename(entry: RecordingEntry, uri: Uri, text: String, names: Map<String, String>) {
+    private fun applyRename(entry: RecordingEntry, uri: Uri?, text: String, names: Map<String, String>) {
+        val renamed = renameSpeakers(text, names)
         activity.lifecycleScope.launch {
-            val written = withContext(Dispatchers.IO) { TranscriptFiles.write(activity, uri, renameSpeakers(text, names)) }
-            if (!written) {
-                Toast.makeText(activity, R.string.transcript_unavailable, Toast.LENGTH_SHORT).show()
-                return@launch
+            val writtenUri = withContext(Dispatchers.IO) {
+                if (uri != null && TranscriptFiles.write(activity, uri, renamed)) {
+                    uri
+                } else {
+                    val temp = File(activity.cacheDir, transcriptNameFor(entry.name))
+                    try {
+                        temp.writeText(renamed)
+                        createRecordingTarget(activity, entry.name)
+                            ?.copyToDestination(activity, temp, temp.name, "text/markdown")
+                    } finally {
+                        temp.delete()
+                    }
+                }
             }
-            RecordingLog.update(activity, entry.name) {
-                it.copy(
-                    text = it.text?.let { t -> renameSpeakers(t, names) },
-                    preview = names.entries.fold(it.preview) { preview, (old, new) -> preview?.replace("$old:", "$new:") },
+            RecordingLog.update(activity, entry.name) { current ->
+                current.copy(
+                    transcriptUri = (writtenUri ?: uri)?.toString(),
+                    text = (current.text ?: text).let { renameSpeakers(it, names) },
+                    preview = names.entries.fold(current.preview) { preview, (old, new) ->
+                        preview?.replace(Regex("\\b${Regex.escape(old)}\\b"), new)
+                    },
                 )
             }
         }
@@ -275,6 +338,36 @@ class RecordingsList(
         player?.release()
         player = null
         playing = null
+    }
+
+    private fun showTranscriptDialog(entry: RecordingEntry) {
+        val uri = entry.transcriptUri?.let(Uri::parse)
+        activity.lifecycleScope.launch {
+            val text = withContext(Dispatchers.IO) {
+                uri?.let { TranscriptFiles.read(activity, it) }
+            } ?: entry.text ?: entry.preview
+            if (text == null) {
+                Toast.makeText(activity, R.string.transcript_unavailable, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val view = LayoutInflater.from(activity).inflate(R.layout.dialog_transcript, null)
+            view.findViewById<TextView>(R.id.transcript_full_text).text = text
+            val dialog = MaterialAlertDialogBuilder(activity)
+                .setTitle("${whenText(entry.recordedAtMs)} · ${clock(entry.durationSec)}")
+                .setView(view)
+                .show()
+            view.findViewById<View>(R.id.transcript_share_button).setOnClickListener {
+                dialog.dismiss()
+                shareTranscript(entry)
+            }
+            view.findViewById<View>(R.id.transcript_ok_button).setOnClickListener {
+                dialog.dismiss()
+            }
+            dialog.window?.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+            )
+        }
     }
 
     private fun shareTranscript(entry: RecordingEntry) {

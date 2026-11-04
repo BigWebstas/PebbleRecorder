@@ -29,10 +29,18 @@ private const val MAX_INLINE_AUDIO_BYTES = 19 * 1024 * 1024
 object GeminiTranscriber {
 
     /** Transcribes [audioUri], retrying transient failures (see [withRetries]). */
-    suspend fun transcribe(context: Context, audioUri: Uri): Result<String> =
-        withRetries(TAG) { transcribeOnce(context, audioUri) }
+    suspend fun transcribe(
+        context: Context,
+        audioUri: Uri,
+        bookmarks: List<Int> = emptyList(),
+    ): Result<String> =
+        withRetries(TAG) { transcribeOnce(context, audioUri, bookmarks) }
 
-    private suspend fun transcribeOnce(context: Context, audioUri: Uri): Result<String> =
+    private suspend fun transcribeOnce(
+        context: Context,
+        audioUri: Uri,
+        bookmarks: List<Int>,
+    ): Result<String> =
         withContext(Dispatchers.IO) {
             try {
                 val apiKey = GeminiPrefs.getApiKey(context)
@@ -49,7 +57,11 @@ object GeminiTranscriber {
                     )
                 }
 
-                val requestBody = buildRequestBody(audioBytes, RecordingFormat.mimeTypeOf(audioUri.lastPathSegment))
+                val requestBody = buildRequestBody(
+                    audioBytes,
+                    RecordingFormat.mimeTypeOf(audioUri.lastPathSegment),
+                    bookmarks,
+                )
                 val (responseCode, responseBody) = try {
                     postToGemini(apiKey, requestBody)
                 } catch (e: IOException) {
@@ -78,20 +90,33 @@ object GeminiTranscriber {
             }
         }
 
-    private fun buildRequestBody(audioBytes: ByteArray, mimeType: String): String {
+    private fun buildRequestBody(
+        audioBytes: ByteArray,
+        mimeType: String,
+        bookmarks: List<Int>,
+    ): String {
         val part = JSONObject().put(
             "inlineData",
             JSONObject()
                 .put("mimeType", mimeType)
                 .put("data", Base64.encodeToString(audioBytes, Base64.NO_WRAP)),
         )
-        val textPart = JSONObject().put(
-            "text",
-            "Transcribe this audio recording accurately. Identify distinct speakers and " +
-                "label each line with a consistent speaker tag (**Speaker 1:**, **Speaker 2:**, " +
-                "etc.) in the order they first speak, formatted as markdown. If you cannot " +
-                "distinguish speakers, omit the labels rather than guessing.",
-        )
+        val prompt = buildString {
+            append(
+                "Transcribe this audio recording accurately. Identify distinct speakers and " +
+                    "label each line with a consistent speaker tag (**Speaker 1:**, **Speaker 2:**, " +
+                    "etc.) in the order they first speak, formatted as markdown. If you cannot " +
+                    "distinguish speakers, omit the labels rather than guessing.",
+            )
+            if (bookmarks.isNotEmpty()) {
+                val times = bookmarks.joinToString(", ") { clockText(it) }
+                append(
+                    " The user bookmarked these timestamps during the recording: $times. " +
+                        "Mark each bookmarked point inline in the transcript with **[Bookmark MM:SS]**.",
+                )
+            }
+        }
+        val textPart = JSONObject().put("text", prompt)
         val content = JSONObject().put("parts", JSONArray().put(textPart).put(part))
         // Plain transcription needs no reasoning - thinkingBudget=0 asks the model to skip it, but
         // in practice some responses still burn a chunk of the budget on "thoughts" anyway
