@@ -1,4 +1,4 @@
-package com.pebblerecorder.app.ui.widget
+package com.pebblerecorder.app.widget
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
@@ -20,6 +20,8 @@ import com.pebblerecorder.app.ui.MainActivity
  * minutes, too slow to be useful, so PebbleListenerService pushes a refresh directly via
  * [refreshAll] the moment that state changes.
  */
+// Don't move or rename this class: Android identifies a placed widget by this exact class name, so
+// changing it silently removes every user's widget from their home screen on the next update.
 class RecordingStatusWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {

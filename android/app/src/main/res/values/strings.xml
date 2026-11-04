@@ -7,6 +7,7 @@
     <string name="folder_selected">Recording folder: %1$s</string>
     <string name="folder_missing">Recording folder: Downloads/PebbleRecorder (default) — choose a folder below to change it</string>
     <string name="recording_notification_channel_name">Recording</string>
+    <string name="recording_active_notification_channel_name">Recording in progress</string>
     <string name="transcription_notification_channel_name">Transcription</string>
     <string name="transcription_failed_notification_title">Transcription failed</string>
     <string name="recording_notification_title">PebbleRecorder is recording</string>
@@ -21,6 +22,12 @@
     <string name="battery_unrestricted">Battery: unrestricted</string>
     <string name="battery_restricted">Battery: restricted — Android may kill the watch trigger in the background; allow unrestricted use below</string>
     <string name="battery_settings_button">Allow unrestricted battery use</string>
+    <string name="quiet_mode_label">Do Not Disturb while recording</string>
+    <string name="quiet_mode_needs_access">Allow Do Not Disturb access for PebbleRecorder, then turn this on again</string>
+    <string name="record_button">Record</string>
+    <string name="stop_button">Stop</string>
+    <string name="pause_button">Pause</string>
+    <string name="resume_button">Resume</string>
     <string name="status_label">Status: %1$s</string>
     <string name="status_idle">Idle</string>
     <string name="status_recording">Recording</string>
@@ -65,7 +72,7 @@
     <string name="quality_standard">Standard</string>
     <string name="quality_high">High - largest files</string>
     <string name="webhook_label">Local webhook (Pebble Index)</string>
-    <string name="webhook_url">POST %1$s\nAuthorization: Bearer token\n(/toggle, /start, /stop, /status)</string>
+    <string name="webhook_url">POST %1$s\nAuthorization: Bearer token\n(/toggle, /start, /stop, /status)\nAudio in the body (raw or multipart) is imported as a recording</string>
     <string name="webhook_copy_token">Copy token</string>
     <string name="webhook_regenerate_token">New token</string>
     <string name="webhook_token_copied">Token copied</string>
