@@ -2,7 +2,7 @@
 
 // Pebble apps have no runtime API to read their own appinfo version, so this is kept in sync
 // with watch/package.json's "version" field by hand.
-#define APP_VERSION "1.3.0"
+#define APP_VERSION "1.4.0"
 
 // Max distance (px) a touch may travel between touchdown and liftoff and still count as a tap
 // rather than a swipe/drag. Anything past this is ignored.
@@ -23,7 +23,17 @@ typedef enum {
   COMMAND_START = 1,
   COMMAND_PAUSE = 2,
   COMMAND_RESUME = 3,
+  COMMAND_BOOKMARK = 4,
 } Command;
+
+// Values received phone -> watch via MESSAGE_KEY_NOTICE.
+typedef enum {
+  NOTICE_TRANSCRIBED = 1,
+  NOTICE_TRANSCRIPTION_FAILED = 2,
+} Notice;
+
+// How long a notice banner ("Transcribed") stays up.
+#define NOTICE_BANNER_MS 2500
 
 // Values received phone -> watch via MESSAGE_KEY_STATUS.
 typedef enum {
@@ -230,6 +240,21 @@ static void prv_show_connected_banner(void) {
   s_banner_hide_timer = app_timer_register(CONNECTED_BANNER_MS, prv_banner_hide_timeout, NULL);
 }
 
+// Flashes a banner and buzzes when the phone finishes transcribing a recording.
+static void prv_show_notice(Notice notice) {
+  if (s_banner_hide_timer) {
+    app_timer_cancel(s_banner_hide_timer);
+  }
+  if (notice == NOTICE_TRANSCRIBED) {
+    prv_show_banner_with_color("Transcribed", PBL_IF_COLOR_ELSE(GColorGreen, GColorBlack));
+    vibes_double_pulse();
+  } else {
+    prv_show_error_banner("Transcription failed");
+    vibes_long_pulse();
+  }
+  s_banner_hide_timer = app_timer_register(NOTICE_BANNER_MS, prv_banner_hide_timeout, NULL);
+}
+
 static void prv_cancel_phone_check(void) {
   s_phone_check_pending = false;
   if (s_phone_check_timer) {
@@ -286,6 +311,22 @@ static void prv_send_command(Command command) {
   }
 
   prv_set_state(prv_pending_state_for_command(command));
+}
+
+// Marks the current point of the recording on the phone. Unlike the other commands it doesn't
+// change the watch's state, so it bypasses prv_send_command's pending-state handling.
+static void prv_bookmark_click_handler(ClickRecognizerRef recognizer, void *context) {
+  if (s_state != APP_STATE_RECORDING) {
+    return;
+  }
+  DictionaryIterator *iter;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) {
+    return;
+  }
+  int32_t command_value = COMMAND_BOOKMARK;
+  dict_write_int(iter, MESSAGE_KEY_COMMAND, &command_value, sizeof(command_value), true);
+  app_message_outbox_send();
+  vibes_short_pulse();
 }
 
 static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
@@ -356,6 +397,8 @@ static void prv_click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, prv_select_click_handler);
   window_single_click_subscribe(BUTTON_ID_UP, prv_pause_resume_click_handler);
   window_single_click_subscribe(BUTTON_ID_DOWN, prv_pause_resume_click_handler);
+  // Hold DOWN to drop a bookmark while recording.
+  window_long_click_subscribe(BUTTON_ID_DOWN, 500, prv_bookmark_click_handler, NULL);
 }
 
 // The phone reports how long the recording has actually run (pauses excluded) alongside
@@ -386,6 +429,12 @@ static void prv_inbox_received_handler(DictionaryIterator *iterator, void *conte
   if (level_tuple) {
     s_level = level_tuple->value->int32;
     layer_mark_dirty(s_level_layer);
+    return;
+  }
+
+  Tuple *notice_tuple = dict_find(iterator, MESSAGE_KEY_NOTICE);
+  if (notice_tuple) {
+    prv_show_notice((Notice)notice_tuple->value->int32);
     return;
   }
 

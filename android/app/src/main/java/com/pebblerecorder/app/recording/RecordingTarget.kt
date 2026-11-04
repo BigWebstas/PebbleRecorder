@@ -36,23 +36,29 @@ sealed interface RecordingTarget {
 
     /** Where the transcript is written before [finalize] moves it alongside the audio. */
     val transcriptFile: File
-        get() = File(file.parentFile, displayName.substringBeforeLast('.').removeSuffix("-rec") + "-txt.md")
+        get() = File(file.parentFile, transcriptNameFor(displayName))
 
-    /** Copies [source] to the destination under [name]; true on success. */
-    fun copyToDestination(context: Context, source: File, name: String, mimeType: String): Boolean
+    /** Copies [source] to the destination under [name]; the new file's Uri, or null on failure. */
+    fun copyToDestination(context: Context, source: File, name: String, mimeType: String): Uri?
+
+    /** Where [finalize] put the files. */
+    data class Delivery(val audioUri: Uri, val transcriptUri: Uri?)
 
     /**
      * Moves the transcript (if one was written) and the recording to their destination, deleting
      * the private copies. On failure the private copies are kept, so [recoverOrphanedRecordings]
      * can retry on the next start.
      */
-    fun finalize(context: Context) {
+    fun finalize(context: Context): Delivery? {
         val transcript = transcriptFile
+        var transcriptUri: Uri? = null
         if (transcript.exists()) {
-            if (!copyToDestination(context, transcript, transcript.name, "text/markdown")) return
+            transcriptUri = copyToDestination(context, transcript, transcript.name, "text/markdown") ?: return null
             transcript.delete()
         }
-        if (copyToDestination(context, file, displayName, RecordingFormat.mimeTypeOf(displayName))) file.delete()
+        val audioUri = copyToDestination(context, file, displayName, RecordingFormat.mimeTypeOf(displayName)) ?: return null
+        file.delete()
+        return Delivery(audioUri, transcriptUri)
     }
 
     /** Cleans up an abandoned in-progress recording, e.g. if MediaRecorder failed to start. */
@@ -64,25 +70,28 @@ sealed interface RecordingTarget {
     class Saf(override val file: File, private val folder: DocumentFile) : RecordingTarget {
         override val displayName: String get() = file.name
 
-        override fun copyToDestination(context: Context, source: File, name: String, mimeType: String): Boolean {
+        override fun copyToDestination(context: Context, source: File, name: String, mimeType: String): Uri? {
             // Copy under a dotfile name and rename when done, so a watcher can't pick up the
             // destination file half-copied.
             val partial = folder.createFile(mimeType, ".$name")
             if (partial == null) {
                 Log.w(TAG, "Failed to create .$name in recording folder")
-                return false
+                return null
             }
-            if (copyFile(context, source, partial.uri) && partial.renameTo(name)) return true
+            if (copyFile(context, source, partial.uri) && partial.renameTo(name)) {
+                // renaming can change the document's Uri, so report the renamed file's.
+                return folder.findFile(name)?.uri ?: partial.uri
+            }
             Log.w(TAG, "Failed to move $name into recording folder")
             partial.delete()
-            return false
+            return null
         }
     }
 
     class Downloads(override val file: File) : RecordingTarget {
         override val displayName: String get() = file.name
 
-        override fun copyToDestination(context: Context, source: File, name: String, mimeType: String): Boolean {
+        override fun copyToDestination(context: Context, source: File, name: String, mimeType: String): Uri? {
             // MediaStore hides IS_PENDING entries from other apps until the copy is done.
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
@@ -93,16 +102,16 @@ sealed interface RecordingTarget {
             val dest = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
             if (dest == null) {
                 Log.w(TAG, "Failed to create $name in Downloads")
-                return false
+                return null
             }
             if (!copyFile(context, source, dest)) {
                 Log.w(TAG, "Failed to copy $name into Downloads")
                 context.contentResolver.delete(dest, null, null)
-                return false
+                return null
             }
             val done = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
             context.contentResolver.update(dest, done, null, null)
-            return true
+            return dest
         }
     }
 }
@@ -114,6 +123,9 @@ private fun copyFile(context: Context, source: File, dest: Uri): Boolean = try {
     Log.w(TAG, "Copy to $dest failed", e)
     false
 }
+
+/** The transcript's file name for the recording named [audioName]. */
+fun transcriptNameFor(audioName: String) = audioName.substringBeforeLast('.').removeSuffix("-rec") + "-txt.md"
 
 private fun recordingsDir(context: Context) = File(context.filesDir, "recordings").apply { mkdirs() }
 
@@ -137,15 +149,16 @@ fun createRecordingTarget(context: Context, finalName: String): RecordingTarget?
 }
 
 /**
- * Finishes recordings left in private storage by a process death mid-recording or mid-copy.
- * Empty files are discarded; the rest are moved to their destination as-is, with any transcript.
+ * Finds recordings left in private storage by a process death mid-recording, mid-transcription or
+ * mid-copy and hands each to [handle] - which should transcribe (if enabled) and deliver it, so an
+ * interrupted recording ends up as complete as any other. Empty files are discarded.
  */
-fun recoverOrphanedRecordings(context: Context) {
+fun recoverOrphanedRecordings(context: Context, handle: (RecordingTarget) -> Unit) {
     recordingsDir(context).listFiles { f -> RecordingFormat.isRecordingFile(f.name) }?.forEach { file ->
         if (file.length() == 0L) {
             file.delete()
             return@forEach
         }
-        createRecordingTarget(context, file.name)?.finalize(context)
+        createRecordingTarget(context, file.name)?.let(handle)
     }
 }

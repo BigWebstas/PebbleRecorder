@@ -12,6 +12,9 @@ private const val PREFS_NAME = "recording_prefs"
 private const val KEY_FORMAT = "format"
 private const val KEY_QUALITY = "quality"
 private const val KEY_MIC = "mic"
+private const val KEY_MAX_MINUTES = "max_minutes"
+private const val KEY_SILENCE_MINUTES = "silence_minutes"
+private const val KEY_AUTO_DELETE_DAYS = "auto_delete_days"
 
 /** Container + codec a recording is written in. */
 enum class RecordingFormat(
@@ -105,6 +108,27 @@ object RecordingSettings {
 
     fun setMicKey(context: Context, key: String?) {
         prefs(context).edit().putString(KEY_MIC, key).apply()
+    }
+
+    /** Stop a recording by itself after this many minutes; 0 = never. */
+    fun maxMinutes(context: Context): Int = prefs(context).getInt(KEY_MAX_MINUTES, 0)
+
+    fun setMaxMinutes(context: Context, minutes: Int) {
+        prefs(context).edit().putInt(KEY_MAX_MINUTES, minutes).apply()
+    }
+
+    /** Stop a recording by itself after this many minutes of silence; 0 = never. */
+    fun silenceMinutes(context: Context): Int = prefs(context).getInt(KEY_SILENCE_MINUTES, 0)
+
+    fun setSilenceMinutes(context: Context, minutes: Int) {
+        prefs(context).edit().putInt(KEY_SILENCE_MINUTES, minutes).apply()
+    }
+
+    /** Delete delivered recordings after this many calendar days; 0 = never. See [RecordingRetention]. */
+    fun autoDeleteDays(context: Context): Int = prefs(context).getInt(KEY_AUTO_DELETE_DAYS, 0)
+
+    fun setAutoDeleteDays(context: Context, days: Int) {
+        prefs(context).edit().putInt(KEY_AUTO_DELETE_DAYS, days).apply()
     }
 
     fun availableMics(context: Context): List<MicOption> =

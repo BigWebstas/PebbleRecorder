@@ -10,22 +10,11 @@ import java.io.IOException
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
 private const val TAG = "GeminiTranscriber"
-
-// Transient failures (network blips, rate limits, server errors) are retried with these delays
-// before the 2nd, 3rd and 4th attempts. Permanent failures (bad key, oversized recording, a 4xx
-// other than 429, an unparseable response) are not retried.
-private val RETRY_BACKOFF_MS = longArrayOf(5_000L, 20_000L, 60_000L)
-private const val MAX_ATTEMPTS = 4
-
-/** A transcription failure worth retrying, as opposed to a permanent one. */
-private class RetryableTranscriptionException(message: String, cause: Throwable? = null) :
-    Exception(message, cause)
 
 // Flash is fast and cheap; swap for e.g. "gemini-3.7-pro" if accuracy matters more than latency.
 private const val MODEL = "gemini-3.7-flash"
@@ -39,29 +28,9 @@ private const val MAX_INLINE_AUDIO_BYTES = 19 * 1024 * 1024
 /** Sends a recorded file to the Gemini API and returns the transcript, or a failure with details. */
 object GeminiTranscriber {
 
-    /**
-     * Transcribes [audioUri], retrying transient failures up to [MAX_ATTEMPTS] times with a
-     * backoff between attempts. Returns the transcript on success, or the last failure once the
-     * retries are exhausted (or immediately for a permanent failure).
-     */
-    suspend fun transcribe(context: Context, audioUri: Uri): Result<String> {
-        var lastError: Throwable? = null
-        for (attempt in 1..MAX_ATTEMPTS) {
-            if (attempt > 1) {
-                val backoff = RETRY_BACKOFF_MS[minOf(attempt - 2, RETRY_BACKOFF_MS.lastIndex)]
-                Log.w(TAG, "Retrying transcription in ${backoff}ms (attempt $attempt/$MAX_ATTEMPTS)")
-                delay(backoff)
-            }
-            val result = transcribeOnce(context, audioUri)
-            if (result.isSuccess || result.exceptionOrNull() !is RetryableTranscriptionException) {
-                return result
-            }
-            lastError = result.exceptionOrNull()
-        }
-        return Result.failure(
-            lastError ?: IllegalStateException("Transcription failed after $MAX_ATTEMPTS attempts"),
-        )
-    }
+    /** Transcribes [audioUri], retrying transient failures (see [withRetries]). */
+    suspend fun transcribe(context: Context, audioUri: Uri): Result<String> =
+        withRetries(TAG) { transcribeOnce(context, audioUri) }
 
     private suspend fun transcribeOnce(context: Context, audioUri: Uri): Result<String> =
         withContext(Dispatchers.IO) {
@@ -94,7 +63,7 @@ object GeminiTranscriber {
                     // 429 (rate limited) and 5xx (server-side) are worth another try; other 4xx
                     // (bad request, bad key, quota exhausted) won't fix themselves.
                     return@withContext Result.failure(
-                        if (responseCode == 429 || responseCode >= 500) {
+                        if (isRetryableStatus(responseCode)) {
                             RetryableTranscriptionException(message)
                         } else {
                             IllegalStateException(message)

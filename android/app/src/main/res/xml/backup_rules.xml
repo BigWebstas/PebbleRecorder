@@ -5,6 +5,8 @@
      didn't mean to keep writing recordings into). -->
 <full-backup-content>
     <exclude domain="sharedpref" path="gemini_prefs.xml" />
+    <exclude domain="sharedpref" path="transcription_prefs.xml" />
+    <exclude domain="file" path="whisper/" />
     <exclude domain="sharedpref" path="webhook_prefs.xml" />
     <exclude domain="sharedpref" path="recording_folder.xml" />
 </full-backup-content>
