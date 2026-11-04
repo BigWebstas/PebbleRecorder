@@ -1,5 +1,7 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.recording
 
+import com.pebblerecorder.app.connectivity.PebbleListenerService
+import com.pebblerecorder.app.ui.MainActivity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 

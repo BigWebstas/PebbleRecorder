@@ -1,18 +1,19 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.recording
 
 import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
+import com.pebblerecorder.app.ui.MainActivity
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.log10
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 
 private const val SAMPLE_RATE = 16_000
 private const val FRAME = 1024

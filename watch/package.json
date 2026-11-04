@@ -1,7 +1,7 @@
 {
   "name": "watch",
   "author": "BW",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {},
@@ -26,7 +26,8 @@
       "COMMAND",
       "STATUS",
       "ELAPSED",
-      "LEVEL"
+      "LEVEL",
+      "TOUCH_ENABLED"
     ],
     "companionApp": {
       "android": {

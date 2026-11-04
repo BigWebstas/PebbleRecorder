@@ -1,4 +1,4 @@
-package com.pebblerecorder.app.widget
+package com.pebblerecorder.app.ui.widget
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
@@ -7,10 +7,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
-import com.pebblerecorder.app.MainActivity
 import com.pebblerecorder.app.R
-import com.pebblerecorder.app.RecordingState
-import com.pebblerecorder.app.RecordingStatus
+import com.pebblerecorder.app.connectivity.PebbleListenerService
+import com.pebblerecorder.app.recording.RecordingState
+import com.pebblerecorder.app.recording.RecordingStatus
+import com.pebblerecorder.app.ui.MainActivity
 
 /**
  * Home-screen widget showing PebbleRecorder's live recording state. The state comes straight from

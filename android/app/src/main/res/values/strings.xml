@@ -26,6 +26,12 @@
     <string name="status_recording">Recording</string>
     <string name="status_paused">Paused</string>
     <string name="recording_progress">%1$s · %2$s</string>
+    <string name="watch_touch_label">Touch controls on watch</string>
+    <string name="recording_section">Recording</string>
+    <string name="transcription_section">Transcription</string>
+    <string name="connectivity_section">Connectivity</string>
+    <string name="watch_section">Watch</string>
+    <string name="updates_section">Updates</string>
     <string name="show_advanced">Show advanced</string>
     <string name="hide_advanced">Hide advanced</string>
     <string name="install_watchapp_button">Install on Pebble</string>

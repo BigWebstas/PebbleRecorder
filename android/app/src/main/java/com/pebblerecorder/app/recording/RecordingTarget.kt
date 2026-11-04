@@ -1,4 +1,4 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.recording
 
 import android.content.ContentValues
 import android.content.Context
@@ -8,6 +8,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
+import com.pebblerecorder.app.settings.RecordingFolderPrefs
 import java.io.File
 import java.io.IOException
 
