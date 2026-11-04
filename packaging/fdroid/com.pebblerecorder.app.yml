@@ -28,9 +28,11 @@ AutoName: PebbleRecorder
 # own API key.
 AntiFeatures:
   NonFreeNet:
-    en-US: The optional, off-by-default transcription feature sends recordings to
-      Google's proprietary Gemini API when the user enables it and supplies their
-      own API key.
+    en-US: The optional, off-by-default cloud features send recordings (Gemini or
+      OpenAI transcription) or transcript text (summaries by Gemini, OpenAI or
+      Claude) to those providers' proprietary APIs when the user enables them and
+      supplies their own API key. Transcribing on the phone with Whisper needs no
+      network apart from downloading the model.
 
 # The reference binary for reproducible-build verification must be the "fdroid" flavor
 # specifically (no bundled watch.pbw) - F-Droid's from-source build produces that flavor, not
@@ -48,16 +50,31 @@ Builds:
   # `git rev-parse vX.Y.Z^{commit}` (note the `^{commit}` dereference - `git tag -a` makes an
   # annotated tag object, and a bare `git rev-parse vX.Y.Z` returns *that* object's hash, not the
   # commit it points to).
-  - versionName: 1.3.0
-    versionCode: 25
-    commit: 4692709798ba92645a82458d6fc33030a6785c35
+  - versionName: 1.4.0
+    versionCode: 26
+    commit: 30484adb977b72df51a904ac1076fd2fa03bec2f
     # subdir is the directory where the `build` dir is generated, i.e. the "app" Gradle module -
     # android/app/build/... - so fdroidserver's default flavor scan finds
     # <subdir>/build/outputs/apk/fdroid/release with no explicit `output:` needed. Gradle still
     # picks up the root settings.gradle.kts by searching upward from here.
     subdir: android/app
+    # whisper.cpp (on-device transcription) is a git submodule and is built with the NDK/CMake.
+    submodules: true
     gradle:
       - fdroid
+    # Only the library itself is built (see android/app/src/main/cpp/CMakeLists.txt). The rest of
+    # whisper.cpp is dropped before F-Droid's scanner runs: its bindings include a gradle wrapper
+    # jar, and its models/ and samples/ hold test binaries and audio. Verified: the fdroid flavor
+    # builds without these directories.
+    rm:
+      - android/app/src/main/cpp/whisper.cpp/bindings
+      - android/app/src/main/cpp/whisper.cpp/examples
+      - android/app/src/main/cpp/whisper.cpp/models
+      - android/app/src/main/cpp/whisper.cpp/samples
+      - android/app/src/main/cpp/whisper.cpp/media
+      - android/app/src/main/cpp/whisper.cpp/tests
+    # AGP 9.3.1's default NDK, which is also what the GitHub release is built with.
+    ndk: 28.2.13676358
 
 # SHA-256 of the release signing cert (see android/CLAUDE.md / project-release-process memory) -
 # lets F-Droid's reproducible-build tooling verify a from-source rebuild matches the APK fetched
@@ -68,5 +85,5 @@ AllowedAPKSigningKeys: 3c7b738a4be737b5ed376eb686f9d507d4779d715e6d73a0306e2d7b7
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.0.5
-CurrentVersionCode: 22
+CurrentVersion: 1.4.0
+CurrentVersionCode: 26
