@@ -31,4 +31,23 @@
         android:textColor="@color/widget_text"
         android:textSize="14sp" />
 
+    <Chronometer
+        android:id="@+id/widget_timer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:textColor="@color/widget_text"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+    <ImageButton
+        android:id="@+id/widget_record_button"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="12dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/record_button"
+        android:padding="4dp"
+        android:src="@drawable/widget_ic_record" />
+
 </LinearLayout>

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    style="@style/Widget.Material3.CardView.Filled"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="top"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <ImageButton
+        android:id="@+id/play_button"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/play_button"
+        android:src="@drawable/ic_play"
+        app:tint="?attr/colorPrimary" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/recording_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+        <TextView
+            android:id="@+id/recording_preview"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:alpha="0.8"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/recording_status_chip"
+            style="@style/Widget.Material3.Chip.Assist"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textAppearance="?attr/textAppearanceLabelMedium" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/share_button"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/share_button"
+        android:src="@drawable/ic_share"
+        app:tint="?attr/colorControlNormal" />
+
+    <ImageButton
+        android:id="@+id/more_button"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/more_button"
+        android:src="@drawable/ic_more_vert"
+        app:tint="?attr/colorControlNormal" />
+</LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

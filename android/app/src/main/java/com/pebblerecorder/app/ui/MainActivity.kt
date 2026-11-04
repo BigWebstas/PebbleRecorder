@@ -11,6 +11,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.content.res.ColorStateList
+import android.os.Environment
+import android.os.StatFs
+import android.transition.TransitionManager
+import android.view.HapticFeedbackConstants
+import androidx.documentfile.provider.DocumentFile
+import com.google.android.material.chip.Chip
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -34,6 +40,7 @@ import com.google.android.material.color.MaterialColors
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import com.pebblerecorder.app.R
 import com.pebblerecorder.app.connectivity.AvailableUpdate
@@ -42,12 +49,22 @@ import com.pebblerecorder.app.connectivity.WatchProtocol
 import com.pebblerecorder.app.connectivity.UpdateChecker
 import com.pebblerecorder.app.recording.RecordingFormat
 import com.pebblerecorder.app.recording.RecordingQuality
+import com.pebblerecorder.app.recording.RecordingLog
+import com.pebblerecorder.app.recording.RecordingRetention
 import com.pebblerecorder.app.recording.RecordingSettings
 import com.pebblerecorder.app.recording.QuietMode
 import com.pebblerecorder.app.recording.RecordingState
 import com.pebblerecorder.app.recording.RecordingStatus
 import com.pebblerecorder.app.recording.micSpectrum
 import com.pebblerecorder.app.settings.GeminiPrefs
+import com.pebblerecorder.app.settings.SettingsBackup
+import com.pebblerecorder.app.settings.SummaryProvider
+import com.pebblerecorder.app.settings.TranscriptionEngine
+import com.pebblerecorder.app.settings.TranscriptionPrefs
+import com.pebblerecorder.app.transcription.Summarizer
+import com.pebblerecorder.app.transcription.TranscriptionStatus
+import com.pebblerecorder.app.transcription.WhisperModel
+import com.pebblerecorder.app.transcription.WhisperModels
 import com.pebblerecorder.app.settings.QuietModePrefs
 import com.pebblerecorder.app.settings.RecordingFolderPrefs
 import com.pebblerecorder.app.settings.WEBHOOK_PORT
@@ -57,7 +74,9 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -69,16 +88,17 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_TRANSCRIPTION_ERROR = "com.pebblerecorder.app.extra.TRANSCRIPTION_ERROR"
     }
 
-    private lateinit var permissionsText: TextView
     private lateinit var recordingStatusText: TextView
     private lateinit var recordingProgressText: TextView
-    private lateinit var batterySettingsButton: Button
+    private lateinit var recordingsList: RecordingsList
     private lateinit var spectrogram: SpectrogramView
     private lateinit var statusDot: View
     private lateinit var recordButton: MaterialButton
     private lateinit var pauseButton: MaterialButton
     private var dotPulse: ObjectAnimator? = null
     private var spectrogramJob: Job? = null
+    private var downloadJob: Job? = null
+    private var refreshWhisper: () -> Unit = {}
 
     private val pickFolder = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
@@ -90,6 +110,33 @@ class MainActivity : AppCompatActivity() {
             )
             RecordingFolderPrefs.set(this, uri)
             updateStatus()
+        }
+    }
+
+    private val exportSettings = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                contentResolver.openOutputStream(uri)?.use { it.write(SettingsBackup.export(this).toByteArray()) }
+            }.onSuccess { Toast.makeText(this, R.string.settings_exported, Toast.LENGTH_SHORT).show() }
+        }
+    }
+
+    private val importSettings = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            val json = runCatching {
+                contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+            }.getOrNull()
+            val restored = json?.let { SettingsBackup.import(this, it) }
+            if (restored == null) {
+                Toast.makeText(this, R.string.settings_import_failed, Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, getString(R.string.settings_imported, restored), Toast.LENGTH_SHORT).show()
+                recreate() // so every control shows the restored values
+            }
         }
     }
 
@@ -109,18 +156,35 @@ class MainActivity : AppCompatActivity() {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
         DynamicColors.applyToActivityIfAvailable(this)
         setContentView(R.layout.activity_main)
+        // Edge-to-edge: dark status/navigation bar icons on the light theme, light ones on the dark.
+        val night = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !night
+            isAppearanceLightNavigationBars = !night
+        }
 
-        permissionsText = findViewById(R.id.permissions_text)
         recordingStatusText = findViewById(R.id.recording_status_text)
         recordingProgressText = findViewById(R.id.recording_progress_text)
-        batterySettingsButton = findViewById(R.id.battery_settings_button)
         spectrogram = findViewById(R.id.spectrogram)
         statusDot = findViewById(R.id.status_dot)
         recordButton = findViewById(R.id.record_button)
         pauseButton = findViewById(R.id.pause_button)
         recordButton.setOnClickListener { onRecordClicked() }
         pauseButton.setOnClickListener { onPauseClicked() }
-        batterySettingsButton.setOnClickListener { openBatterySettings() }
+        findViewById<View>(R.id.bookmark_button).setOnClickListener {
+            it.performHapticFeedback(tapFeedback())
+            PebbleListenerService.sendCommand(this, WatchProtocol.COMMAND_BOOKMARK)
+        }
+        recordingsList = RecordingsList(
+            this,
+            findViewById(R.id.recordings_container),
+            findViewById(R.id.recordings_empty),
+            findViewById(R.id.recordings_search_layout),
+            findViewById(R.id.recordings_search),
+        )
+        bindRecordingLog(recordingsList)
+        setUpSections()
         findViewById<Button>(R.id.choose_folder_button).setOnClickListener {
             pickFolder.launch(null)
         }
@@ -133,6 +197,7 @@ class MainActivity : AppCompatActivity() {
         val advancedToggle = findViewById<MaterialButton>(R.id.advanced_toggle_button)
         val advancedBox = findViewById<View>(R.id.advanced_box)
         advancedToggle.setOnClickListener {
+            TransitionManager.beginDelayedTransition(findViewById(R.id.content_root), quickTransition())
             val show = advancedBox.visibility != View.VISIBLE
             advancedBox.visibility = if (show) View.VISIBLE else View.GONE
             advancedToggle.setText(if (show) R.string.hide_advanced else R.string.show_advanced)
@@ -170,8 +235,7 @@ class MainActivity : AppCompatActivity() {
             // Only the github flavor self-updates - see app/build.gradle.kts.
             if (resources.getBoolean(R.bool.has_update_checker)) {
                 visibility = View.VISIBLE
-                this@MainActivity.findViewById<View>(R.id.updates_section_label).visibility = View.VISIBLE
-                this@MainActivity.findViewById<View>(R.id.updates_divider).visibility = View.VISIBLE
+                this@MainActivity.findViewById<View>(R.id.updates_card).visibility = View.VISIBLE
                 setOnClickListener { checkForUpdate(userInitiated = true) }
                 if (savedInstanceState == null) checkForUpdate(userInitiated = false)
             }
@@ -196,15 +260,40 @@ class MainActivity : AppCompatActivity() {
             RecordingStatus.state.combine(RecordingStatus.progress) { state, progress -> state to progress }
                 .collect { (state, progress) ->
                     recordingProgressText.visibility = if (state == RecordingState.IDLE) View.GONE else View.VISIBLE
-                    val s = progress.elapsedSeconds
-                    val time = if (s >= 3600) {
-                        String.format(Locale.US, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
-                    } else {
-                        String.format(Locale.US, "%02d:%02d", s / 60, s % 60)
-                    }
-                    recordingProgressText.text =
-                        getString(R.string.recording_progress, time, Formatter.formatShortFileSize(this@MainActivity, progress.sizeBytes))
+                    recordingProgressText.text = getString(
+                        R.string.recording_progress,
+                        formatClock(progress.elapsedSeconds),
+                        Formatter.formatShortFileSize(this@MainActivity, progress.sizeBytes),
+                    )
                 }
+        }
+
+        // "Transcribing… 42% · 00:12" with a bar while the on-device engine works on a recording.
+        val transcriptionText = findViewById<TextView>(R.id.transcription_text)
+        val transcriptionBar = findViewById<LinearProgressIndicator>(R.id.transcription_progress)
+        lifecycleScope.launch {
+            TranscriptionStatus.active.collectLatest { active ->
+                val visibility = if (active == null) View.GONE else View.VISIBLE
+                transcriptionText.visibility = visibility
+                transcriptionBar.visibility = visibility
+                if (active == null) return@collectLatest
+                if (active.percent == null) {
+                    transcriptionBar.isIndeterminate = true
+                } else {
+                    transcriptionBar.isIndeterminate = false
+                    transcriptionBar.setProgressCompat(active.percent, true)
+                }
+                // The clock ticks once a second, independent of whisper's coarser progress updates.
+                while (true) {
+                    val elapsed = formatClock(((System.currentTimeMillis() - active.startedAtMs) / 1000).toInt())
+                    transcriptionText.text = if (active.percent == null) {
+                        getString(R.string.transcribing_progress, elapsed)
+                    } else {
+                        getString(R.string.transcribing_progress_percent, active.percent, elapsed)
+                    }
+                    delay(1000)
+                }
+            }
         }
 
         // Arms PebbleListenerService as a persistent foreground service while we still have a
@@ -231,10 +320,14 @@ class MainActivity : AppCompatActivity() {
         spectrogramJob = lifecycleScope.launch {
             RecordingStatus.state.collectLatest { showSpectrogram(it) }
         }
+        // Model downloads run on, so pick up where they are whenever the screen is back.
+        downloadJob = lifecycleScope.launch { WhisperModels.download.collect { refreshWhisper() } }
     }
 
     override fun onStop() {
         spectrogramJob?.cancel()
+        downloadJob?.cancel()
+        recordingsList.release()
         dotPulse?.cancel()
         super.onStop()
     }
@@ -244,7 +337,13 @@ class MainActivity : AppCompatActivity() {
         updateStatus()
     }
 
+    /** CONFIRM (API 30+) feels like a deliberate tick; older phones get the plain keyboard tap. */
+    private fun tapFeedback() =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM
+        else HapticFeedbackConstants.KEYBOARD_TAP
+
     private fun onRecordClicked() {
+        recordButton.performHapticFeedback(tapFeedback())
         if (RecordingStatus.state.value != RecordingState.IDLE) {
             PebbleListenerService.sendCommand(this, WatchProtocol.COMMAND_STOP)
         } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
@@ -257,6 +356,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onPauseClicked() {
+        pauseButton.performHapticFeedback(tapFeedback())
         val command = if (RecordingStatus.state.value == RecordingState.PAUSED) {
             WatchProtocol.COMMAND_RESUME
         } else {
@@ -266,11 +366,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Record/stop and pause/resume buttons, and the status dot: pulsing red while recording, amber when paused. */
+    /** Advanced sections open and close; the choice is remembered. Recording and transcription start open. */
+    private fun setUpSections() {
+        val prefs = getSharedPreferences("ui_state", MODE_PRIVATE)
+        listOf(
+            Triple(R.id.recording_section_label, R.id.recording_section_body, true),
+            Triple(R.id.connectivity_section_label, R.id.connectivity_section_body, false),
+            Triple(R.id.transcription_section_label, R.id.transcription_section_body, true),
+            Triple(R.id.watch_section_label, R.id.watch_section_body, false),
+            Triple(R.id.backup_section_label, R.id.backup_section_body, false),
+            Triple(R.id.updates_section_label, R.id.updates_section_body, false),
+        ).forEach { (header, body, open) ->
+            makeCollapsible(
+                findViewById(header), findViewById(body), findViewById(R.id.content_root), prefs,
+                resources.getResourceEntryName(header), open,
+            )
+        }
+    }
+
+    private fun formatClock(totalSeconds: Int): String =
+        if (totalSeconds >= 3600) {
+            String.format(Locale.US, "%d:%02d:%02d", totalSeconds / 3600, totalSeconds / 60 % 60, totalSeconds % 60)
+        } else {
+            String.format(Locale.US, "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
+        }
+
     private fun showControls(state: RecordingState) {
         val idle = state == RecordingState.IDLE
         recordButton.setText(if (idle) R.string.record_button else R.string.stop_button)
         recordButton.setIconResource(if (idle) R.drawable.ic_record else R.drawable.ic_stop)
         pauseButton.visibility = if (idle) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.bookmark_button).visibility =
+            if (state == RecordingState.RECORDING) View.VISIBLE else View.GONE
         val paused = state == RecordingState.PAUSED
         pauseButton.setText(if (paused) R.string.resume_button else R.string.pause_button)
         pauseButton.setIconResource(if (paused) R.drawable.ic_play else R.drawable.ic_pause)
@@ -287,7 +414,7 @@ class MainActivity : AppCompatActivity() {
         // Skipped when the user turned animations off system-wide.
         if (state == RecordingState.RECORDING && ValueAnimator.areAnimatorsEnabled()) {
             dotPulse = ObjectAnimator.ofFloat(statusDot, View.ALPHA, 1f, 0.25f).apply {
-                duration = 800
+                duration = 600
                 repeatMode = ValueAnimator.REVERSE
                 repeatCount = ValueAnimator.INFINITE
                 start()
@@ -334,6 +461,65 @@ class MainActivity : AppCompatActivity() {
             R.id.quality_dropdown, qualities.map { getString(it.labelRes) },
             qualities.indexOf(RecordingSettings.quality(this)),
         ) { RecordingSettings.setQuality(this, qualities[it]) }
+
+        val maxLimits = listOf(0, 30, 60, 120, 240)
+        setUpDropdown(
+            R.id.stop_after_dropdown, maxLimits.map(::limitLabel), maxLimits.indexOf(RecordingSettings.maxMinutes(this)),
+        ) { RecordingSettings.setMaxMinutes(this, maxLimits[it]) }
+        val silenceLimits = listOf(0, 1, 2, 5, 10)
+        setUpDropdown(
+            R.id.silence_stop_dropdown, silenceLimits.map(::limitLabel),
+            silenceLimits.indexOf(RecordingSettings.silenceMinutes(this)),
+        ) { RecordingSettings.setSilenceMinutes(this, silenceLimits[it]) }
+
+        setUpAutoDelete()
+        findViewById<Button>(R.id.export_settings_button).setOnClickListener {
+            exportSettings.launch("pebblerecorder-settings.json")
+        }
+        findViewById<Button>(R.id.import_settings_button).setOnClickListener {
+            importSettings.launch(arrayOf("application/json", "text/plain", "*/*"))
+        }
+    }
+
+    /**
+     * "Delete recordings automatically after": Never, or a number of days. Turning it on asks first -
+     * it deletes files from the recording folder with no way back - and says how many it would
+     * delete right away.
+     */
+    private fun setUpAutoDelete() {
+        val options = listOf(0, 7, 30, 90)
+        val labels = options.map { if (it == 0) getString(R.string.never) else getString(R.string.days_option, it) }
+        val dropdown = findViewById<MaterialAutoCompleteTextView>(R.id.auto_delete_dropdown)
+        fun showSaved() = dropdown.setText(labels[options.indexOf(RecordingSettings.autoDeleteDays(this)).coerceAtLeast(0)], false)
+        dropdown.setSimpleItems(labels.toTypedArray())
+        showSaved()
+        dropdown.setOnItemClickListener { _, _, position, _ ->
+            val days = options[position]
+            if (days == 0) {
+                RecordingSettings.setAutoDeleteDays(this, 0)
+                return@setOnItemClickListener
+            }
+            val now = RecordingRetention.expired(RecordingLog.entries.value, days, System.currentTimeMillis()).size
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.auto_delete_title)
+                .setMessage(
+                    getString(R.string.auto_delete_confirm, days, days + 1) +
+                        if (now > 0) "\n\n" + resources.getQuantityString(R.plurals.auto_delete_now, now, now) else "",
+                )
+                .setPositiveButton(R.string.auto_delete_turn_on) { _, _ ->
+                    RecordingSettings.setAutoDeleteDays(this, days)
+                    lifecycleScope.launch(Dispatchers.IO) { RecordingRetention.sweep(this@MainActivity) }
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .setOnDismissListener { showSaved() } // back to what is actually saved if they cancelled
+                .show()
+        }
+    }
+
+    private fun limitLabel(minutes: Int): String = when {
+        minutes == 0 -> getString(R.string.never)
+        minutes % 60 == 0 -> getString(R.string.hours_short, minutes / 60)
+        else -> getString(R.string.minutes_short, minutes)
     }
 
     private fun setUpWebhookSettings() {
@@ -359,6 +545,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun EditText.onTextChanged(onChanged: (String) -> Unit) {
+        addTextChangedListener(
+            object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) = onChanged(s?.toString().orEmpty())
+            },
+        )
+    }
+
+    private fun setUpWhisperSettings() {
+        val models = WhisperModel.entries
+        val list = WhisperModelList(this, findViewById(R.id.whisper_models))
+        val labels = models.map { getString(R.string.whisper_model_item, it.label, it.sizeBytes / 1_000_000) }
+        setUpDropdown(R.id.whisper_model_dropdown, labels, models.indexOf(TranscriptionPrefs.whisperModel(this))) {
+            TranscriptionPrefs.setWhisperModel(this, models[it])
+        }
+        findViewById<MaterialSwitch>(R.id.whisper_tiny_long_switch).apply {
+            isChecked = TranscriptionPrefs.tinyForLongRecordings(this@MainActivity)
+            setOnCheckedChangeListener { _, checked -> TranscriptionPrefs.setTinyForLongRecordings(this@MainActivity, checked) }
+        }
+        list.refresh()
+        refreshWhisper = list::refresh
+    }
+
     private fun refreshMicDropdown() {
         val mics = RecordingSettings.availableMics(this)
         val saved = RecordingSettings.micKey(this)
@@ -377,28 +588,104 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setUpGeminiSettings() {
-        val enabledSwitch = findViewById<MaterialSwitch>(R.id.gemini_enabled_switch)
-        val apiKeyInput = findViewById<EditText>(R.id.gemini_api_key_input)
+        val enabledSwitch = findViewById<MaterialSwitch>(R.id.transcribe_switch)
+        val geminiKeyInput = findViewById<EditText>(R.id.gemini_api_key_input)
+        val openAiKeyInput = findViewById<EditText>(R.id.openai_api_key_input)
+        val whisperBox = findViewById<View>(R.id.whisper_box)
         val locationSwitch = findViewById<MaterialSwitch>(R.id.gemini_location_switch)
 
         enabledSwitch.isChecked = GeminiPrefs.isEnabled(this)
-        apiKeyInput.setText(GeminiPrefs.getApiKey(this))
+        geminiKeyInput.setText(GeminiPrefs.getApiKey(this))
+        openAiKeyInput.setText(TranscriptionPrefs.openAiApiKey(this))
         locationSwitch.isChecked = GeminiPrefs.isLocationEnabled(this)
 
         enabledSwitch.setOnCheckedChangeListener { _, isChecked ->
             GeminiPrefs.setEnabled(this, isChecked)
         }
-        apiKeyInput.addTextChangedListener(
-            object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(s: Editable?) {
-                    GeminiPrefs.setApiKey(this@MainActivity, s?.toString().orEmpty())
-                }
-            },
-        )
+
+        val claudeKeyInput = findViewById<EditText>(R.id.claude_api_key_input)
+        val geminiKeyLayout = findViewById<View>(R.id.gemini_api_key_input_layout)
+        val openAiKeyLayout = findViewById<View>(R.id.openai_api_key_input_layout)
+        val claudeKeyLayout = findViewById<View>(R.id.claude_api_key_input_layout)
+        val summarySwitch = findViewById<MaterialSwitch>(R.id.summary_switch)
+        val summaryBox = findViewById<View>(R.id.summary_box)
+        val summaryTestButton = findViewById<Button>(R.id.summary_test_button)
+        val summaryTestResult = findViewById<TextView>(R.id.summary_test_result)
+        claudeKeyInput.setText(TranscriptionPrefs.claudeApiKey(this))
+        summarySwitch.isChecked = TranscriptionPrefs.summaryEnabled(this)
+
+        // Each engine - and the summary provider, if summaries are on - only shows the settings it needs.
+        fun showEngineSettings() {
+            val engine = TranscriptionPrefs.engine(this)
+            val summary = TranscriptionPrefs.summaryEnabled(this)
+            val provider = TranscriptionPrefs.summaryProvider(this)
+            geminiKeyLayout.visibility =
+                if (engine == TranscriptionEngine.GEMINI || (summary && provider == SummaryProvider.GEMINI)) View.VISIBLE else View.GONE
+            openAiKeyLayout.visibility =
+                if (engine == TranscriptionEngine.OPENAI || (summary && provider == SummaryProvider.OPENAI)) View.VISIBLE else View.GONE
+            claudeKeyLayout.visibility = if (summary && provider == SummaryProvider.CLAUDE) View.VISIBLE else View.GONE
+            whisperBox.visibility = if (engine == TranscriptionEngine.WHISPER) View.VISIBLE else View.GONE
+            summaryBox.visibility = if (summary) View.VISIBLE else View.GONE
+
+            // "Test connection" only makes sense once the chosen provider has a key; any change
+            // here also makes a previous result stale.
+            val hasKey = when (provider) {
+                SummaryProvider.GEMINI -> GeminiPrefs.getApiKey(this)
+                SummaryProvider.OPENAI -> TranscriptionPrefs.openAiApiKey(this)
+                SummaryProvider.CLAUDE -> TranscriptionPrefs.claudeApiKey(this)
+            } != null
+            summaryTestButton.visibility = if (summary && hasKey) View.VISIBLE else View.GONE
+            summaryTestResult.visibility = View.GONE
+        }
+        geminiKeyInput.onTextChanged { GeminiPrefs.setApiKey(this, it); showEngineSettings() }
+        openAiKeyInput.onTextChanged { TranscriptionPrefs.setOpenAiApiKey(this, it); showEngineSettings() }
+        claudeKeyInput.onTextChanged { TranscriptionPrefs.setClaudeApiKey(this, it); showEngineSettings() }
+        summaryTestButton.setOnClickListener {
+            summaryTestButton.isEnabled = false
+            summaryTestButton.setText(R.string.summary_testing)
+            summaryTestResult.visibility = View.GONE
+            lifecycleScope.launch {
+                val provider = TranscriptionPrefs.summaryProvider(this@MainActivity)
+                val result = Summarizer.test(this@MainActivity)
+                summaryTestButton.isEnabled = true
+                summaryTestButton.setText(R.string.summary_test_button)
+                summaryTestResult.text = result.fold(
+                    { getString(R.string.summary_test_ok, provider.label) },
+                    { getString(R.string.summary_test_failed, (it.message ?: it.javaClass.simpleName).take(200)) },
+                )
+                summaryTestResult.setTextColor(
+                    MaterialColors.getColor(
+                        summaryTestResult,
+                        if (result.isSuccess) androidx.appcompat.R.attr.colorPrimary else androidx.appcompat.R.attr.colorError,
+                    ),
+                )
+                summaryTestResult.visibility = View.VISIBLE
+            }
+        }
+        val engines = TranscriptionEngine.entries
+        val engineLabels = listOf(R.string.engine_gemini, R.string.engine_openai, R.string.engine_whisper)
+            .map { getString(it) }
+        setUpDropdown(R.id.engine_dropdown, engineLabels, engines.indexOf(TranscriptionPrefs.engine(this))) {
+            TranscriptionPrefs.setEngine(this, engines[it])
+            showEngineSettings()
+        }
+        val providers = SummaryProvider.entries
+        setUpDropdown(
+            R.id.summary_provider_dropdown, providers.map { it.label },
+            providers.indexOf(TranscriptionPrefs.summaryProvider(this)),
+        ) {
+            TranscriptionPrefs.setSummaryProvider(this, providers[it])
+            showEngineSettings()
+        }
+        summarySwitch.setOnCheckedChangeListener { _, checked ->
+            TranscriptionPrefs.setSummaryEnabled(this, checked)
+            showEngineSettings()
+        }
+        showEngineSettings()
+        setUpWhisperSettings()
         locationSwitch.setOnCheckedChangeListener { _, isChecked ->
             GeminiPrefs.setLocationEnabled(this, isChecked)
+            updateStatus()
             if (isChecked) {
                 // Transcripts still work fine without it if the user declines - location is just
                 // omitted from the header.
@@ -513,35 +800,41 @@ class MainActivity : AppCompatActivity() {
         val folder = RecordingFolderPrefs.get(this)
         val batteryUnrestricted = isBatteryUnrestricted()
 
-        permissionsText.text = buildString {
-            append(
-                getString(
-                    if (hasMicPermission) R.string.mic_permission_granted else R.string.mic_permission_missing,
-                ),
-            )
-            append("\n")
-            append(
-                getString(
-                    if (hasLocationPermission) {
-                        R.string.location_permission_granted
-                    } else {
-                        R.string.location_permission_missing
-                    },
-                ),
-            )
-            append("\n")
-            append(getString(if (batteryUnrestricted) R.string.battery_unrestricted else R.string.battery_restricted))
-            append("\n")
-            append(
-                if (folder != null) {
-                    getString(R.string.folder_selected, folder.lastPathSegment ?: folder.toString())
-                } else {
-                    getString(R.string.folder_missing)
-                },
-            )
-        }
+        val folderName = folder?.let { DocumentFile.fromTreeUri(this, it)?.name ?: it.lastPathSegment }
+            ?: getString(R.string.chip_folder_default)
 
-        batterySettingsButton.visibility = if (batteryUnrestricted) View.GONE else View.VISIBLE
+        bindChip(findViewById(R.id.chip_mic), hasMicPermission) { requestPermissions.launch(requiredPermissions()) }
+        findViewById<Chip>(R.id.chip_location).apply {
+            // Only matters when transcripts are set to include where you were.
+            visibility = if (GeminiPrefs.isLocationEnabled(this@MainActivity)) View.VISIBLE else View.GONE
+            bindChip(this, hasLocationPermission) {
+                requestLocationPermission.launch(
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                )
+            }
+        }
+        bindChip(findViewById(R.id.chip_battery), batteryUnrestricted) { openBatterySettings() }
+        findViewById<Chip>(R.id.chip_folder).apply {
+            text = getString(R.string.chip_folder, folderName)
+            bindChip(this, true) { pickFolder.launch(null) }
+        }
+        val free = Formatter.formatShortFileSize(this, StatFs(Environment.getExternalStorageDirectory().path).availableBytes)
+        findViewById<TextView>(R.id.storage_text).text = getString(R.string.storage_line, folderName, free)
+    }
+
+    /** An assist chip that reads green-ish when [ok] and error-red when something needs fixing; tapping fixes it. */
+    private fun bindChip(chip: Chip, ok: Boolean, onClick: () -> Unit) {
+        val background = if (ok) com.google.android.material.R.attr.colorSecondaryContainer
+        else com.google.android.material.R.attr.colorErrorContainer
+        val content = if (ok) com.google.android.material.R.attr.colorOnSecondaryContainer
+        else com.google.android.material.R.attr.colorOnErrorContainer
+        chip.chipBackgroundColor = ColorStateList.valueOf(MaterialColors.getColor(chip, background))
+        val contentColor = MaterialColors.getColor(chip, content)
+        chip.setTextColor(contentColor)
+        chip.chipIconTint = ColorStateList.valueOf(contentColor)
+        chip.setChipIconResource(if (ok) R.drawable.ic_check else R.drawable.ic_warning)
+        chip.isChipIconVisible = true
+        chip.setOnClickListener { onClick() }
     }
 
     /**

@@ -70,6 +70,18 @@
             </intent-filter>
         </receiver>
 
+        <!-- Quick Settings tile; the system binds to it, hence the permission guard. -->
+        <service
+            android:name=".tile.RecordingTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_mic"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- exported=true: the launcher/home-screen process needs to reach this one to bind and
              update the widget; nothing else here is exported for that reason. -->
         <receiver

@@ -3,28 +3,37 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:fillViewport="true"
+    android:fitsSystemWindows="true">
 
 <LinearLayout
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:id="@+id/content_root"
     android:orientation="vertical"
-    android:gravity="center"
-    android:padding="24dp">
+    android:padding="16dp">
 
-    <ImageView
-        android:layout_width="96dp"
-        android:layout_height="96dp"
-        android:layout_marginBottom="16dp"
-        android:contentDescription="@null"
-        android:src="@drawable/ic_mic" />
-
-    <TextView
-        android:id="@+id/status_text"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center"
-        android:text="@string/main_status_text" />
+        android:gravity="center_horizontal"
+        android:orientation="vertical">
+
+        <ImageView
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_mic"
+            app:tint="?attr/colorPrimary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/app_name"
+            android:textAppearance="?attr/textAppearanceTitleLarge"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <com.google.android.material.card.MaterialCardView
         style="@style/Widget.Material3.CardView.Filled"
@@ -68,6 +77,22 @@
                 android:gravity="center"
                 android:visibility="gone" />
 
+            <TextView
+                android:id="@+id/transcription_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center"
+                android:visibility="gone" />
+
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/transcription_progress"
+                android:layout_width="280dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:indeterminate="true"
+                android:visibility="gone" />
+
             <com.pebblerecorder.app.ui.SpectrogramView
                 android:id="@+id/spectrogram"
                 android:layout_width="280dp"
@@ -80,11 +105,13 @@
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
         android:layout_marginTop="16dp"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/record_button"
+            android:minHeight="56dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:minWidth="140dp"
@@ -103,30 +130,116 @@
             app:icon="@drawable/ic_pause"
             app:iconPadding="8dp"
             android:text="@string/pause_button" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/bookmark_button"
+            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="12dp"
+            android:contentDescription="@string/bookmark_button"
+            android:visibility="gone"
+            app:icon="@drawable/ic_bookmark" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/permissions_text"
+    <com.google.android.material.chip.ChipGroup
+        android:id="@+id/health_chips"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:gravity="center" />
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="12dp"
+        app:chipSpacingVertical="0dp">
 
-    <Button
-        android:id="@+id/battery_settings_button"
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip_mic"
+            style="@style/Widget.Material3.Chip.Assist"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/chip_mic" />
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip_location"
+            style="@style/Widget.Material3.Chip.Assist"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/chip_location" />
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip_battery"
+            style="@style/Widget.Material3.Chip.Assist"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/chip_battery" />
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip_folder"
+            style="@style/Widget.Material3.Chip.Assist"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </com.google.android.material.chip.ChipGroup>
+
+    <TextView
+        android:id="@+id/storage_text"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_gravity="center_horizontal"
+        android:alpha="0.7"
+        android:gravity="center"
+        android:textAppearance="?attr/textAppearanceBodySmall" />
+
+    <TextView
+        style="@style/SectionHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="@string/recent_section" />
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/recordings_search_layout"
+        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="@string/search_hint"
         android:visibility="gone"
-        android:text="@string/battery_settings_button" />
+        app:endIconMode="clear_text"
+        app:startIconDrawable="@drawable/ic_search">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/recordings_search"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:imeOptions="actionSearch"
+            android:inputType="text"
+            android:maxLines="1" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <TextView
+        android:id="@+id/recordings_empty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:alpha="0.7"
+        android:text="@string/recordings_empty" />
+
+    <LinearLayout
+        android:id="@+id/recordings_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="vertical" />
 
     <Button
         android:id="@+id/advanced_toggle_button"
+            style="@style/Widget.Material3.Button.TextButton"
         app:icon="@drawable/ic_expand_more"
         app:iconPadding="8dp"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
+        android:layout_gravity="center_horizontal"
         android:text="@string/show_advanced" />
 
     <LinearLayout
@@ -134,27 +247,47 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:gravity="center"
         android:visibility="gone">
 
-        <com.google.android.material.divider.MaterialDivider
+    <com.google.android.material.card.MaterialCardView
+        style="@style/Widget.Material3.CardView.Outlined"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp">
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            app:dividerColor="?attr/colorPrimary"
-            app:dividerThickness="3dp" />
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="4dp">
+
 
         <TextView
             android:id="@+id/recording_section_label"
             style="@style/SectionHeader"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:background="?attr/selectableItemBackground"
+            android:drawablePadding="8dp"
+            android:drawableTint="?attr/colorPrimary"
+            android:gravity="center_vertical"
+            android:minHeight="48dp"
             android:text="@string/recording_section" />
+
+        <LinearLayout
+            android:id="@+id/recording_section_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="12dp"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
 
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-            android:layout_width="260dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:hint="@string/mic_label">
@@ -168,7 +301,7 @@
 
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-            android:layout_width="260dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:hint="@string/format_label">
@@ -182,7 +315,7 @@
 
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-            android:layout_width="260dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:hint="@string/quality_label">
@@ -194,15 +327,46 @@
                 android:inputType="none" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/quiet_mode_switch"
-            android:layout_width="wrap_content"
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
+            android:hint="@string/stop_after_label">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/stop_after_dropdown"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="@string/silence_stop_label">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/silence_stop_dropdown"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/quiet_mode_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
             android:text="@string/quiet_mode_label" />
 
         <Button
             android:id="@+id/choose_folder_button"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
@@ -210,29 +374,71 @@
             app:iconPadding="8dp"
             android:text="@string/choose_folder_button" />
 
-        <com.google.android.material.divider.MaterialDivider
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" />
+            android:layout_marginTop="12dp"
+            android:hint="@string/auto_delete_label">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/auto_delete_dropdown"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
+        style="@style/Widget.Material3.CardView.Outlined"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="4dp">
+
 
         <TextView
             android:id="@+id/connectivity_section_label"
             style="@style/SectionHeader"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:background="?attr/selectableItemBackground"
+            android:drawablePadding="8dp"
+            android:drawableTint="?attr/colorPrimary"
+            android:gravity="center_vertical"
+            android:minHeight="48dp"
             android:text="@string/connectivity_section" />
+
+        <LinearLayout
+            android:id="@+id/connectivity_section_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="12dp"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
 
         <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/webhook_switch"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:minHeight="56dp"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
             android:text="@string/webhook_label" />
 
         <LinearLayout
             android:id="@+id/webhook_details"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
@@ -245,7 +451,7 @@
                 android:layout_marginTop="4dp"
                 android:gravity="center"
                 android:textIsSelectable="true"
-                android:textSize="12sp" />
+                android:textAppearance="?attr/textAppearanceBodySmall" />
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -268,65 +474,280 @@
             </LinearLayout>
         </LinearLayout>
 
-        <com.google.android.material.divider.MaterialDivider
+        </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
+        style="@style/Widget.Material3.CardView.Outlined"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp">
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" />
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="4dp">
+
 
         <TextView
             android:id="@+id/transcription_section_label"
             style="@style/SectionHeader"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:background="?attr/selectableItemBackground"
+            android:drawablePadding="8dp"
+            android:drawableTint="?attr/colorPrimary"
+            android:gravity="center_vertical"
+            android:minHeight="48dp"
             android:text="@string/transcription_section" />
 
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/gemini_enabled_switch"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/transcription_section_body"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/gemini_enabled_label" />
+            android:paddingBottom="12dp"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
 
-        <EditText
-            android:id="@+id/gemini_api_key_input"
-            android:layout_width="260dp"
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/transcribe_switch"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:autofillHints=""
+            android:minHeight="56dp"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:text="@string/transcribe_enabled_label" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/engine_layout"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="@string/engine_label">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/engine_dropdown"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/gemini_api_key_input_layout"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
             android:hint="@string/gemini_api_key_hint"
-            android:importantForAutofill="no"
-            android:inputType="textPassword" />
+            app:endIconMode="password_toggle">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/gemini_api_key_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:autofillHints=""
+                android:importantForAutofill="no"
+                android:inputType="textPassword" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/openai_api_key_input_layout"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="@string/openai_api_key_hint"
+            android:visibility="gone"
+            app:endIconMode="password_toggle">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/openai_api_key_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:autofillHints=""
+                android:importantForAutofill="no"
+                android:inputType="textPassword" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <LinearLayout
+            android:id="@+id/whisper_box"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:hint="@string/whisper_model_label">
+
+                <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                    android:id="@+id/whisper_model_dropdown"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <LinearLayout
+                android:id="@+id/whisper_models"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/whisper_tiny_long_switch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+                android:text="@string/whisper_tiny_long_label" />
+        </LinearLayout>
 
         <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/gemini_location_switch"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/gemini_location_label" />
-
-        <com.google.android.material.divider.MaterialDivider
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" />
+            android:minHeight="56dp"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:text="@string/gemini_location_label" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/summary_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:text="@string/summary_label" />
+
+        <LinearLayout
+            android:id="@+id/summary_box"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="@string/summary_provider_label">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/summary_provider_dropdown"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:alpha="0.7"
+                android:text="@string/summary_privacy_note"
+                android:textAppearance="?attr/textAppearanceBodySmall" />
+
+        </LinearLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/claude_api_key_input_layout"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="@string/claude_api_key_hint"
+            android:visibility="gone"
+            app:endIconMode="password_toggle">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/claude_api_key_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:autofillHints=""
+                android:importantForAutofill="no"
+                android:inputType="textPassword" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <Button
+            android:id="@+id/summary_test_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="8dp"
+            android:text="@string/summary_test_button"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/summary_test_result"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center_horizontal"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:visibility="gone" />
+
+        </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
+        style="@style/Widget.Material3.CardView.Outlined"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="4dp">
+
 
         <TextView
             android:id="@+id/watch_section_label"
             style="@style/SectionHeader"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:background="?attr/selectableItemBackground"
+            android:drawablePadding="8dp"
+            android:drawableTint="?attr/colorPrimary"
+            android:gravity="center_vertical"
+            android:minHeight="48dp"
             android:text="@string/watch_section" />
+
+        <LinearLayout
+            android:id="@+id/watch_section_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="12dp"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
 
         <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/watch_touch_switch"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:minHeight="56dp"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
             android:text="@string/watch_touch_label" />
 
         <Button
             android:id="@+id/install_watchapp_button"
+            style="@style/Widget.Material3.Button.TonalButton"
             app:icon="@drawable/ic_watch"
             app:iconPadding="8dp"
             android:layout_width="wrap_content"
@@ -334,31 +755,123 @@
             android:layout_marginTop="12dp"
             android:text="@string/install_watchapp_button" />
 
-        <com.google.android.material.divider.MaterialDivider
-            android:id="@+id/updates_divider"
+        </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
+        style="@style/Widget.Material3.CardView.Outlined"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp">
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:visibility="gone" />
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="4dp">
+
+
+        <TextView
+            android:id="@+id/backup_section_label"
+            style="@style/SectionHeader"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:drawablePadding="8dp"
+            android:drawableTint="?attr/colorPrimary"
+            android:gravity="center_vertical"
+            android:minHeight="48dp"
+            android:text="@string/backup_section" />
+
+        <LinearLayout
+            android:id="@+id/backup_section_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="12dp"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:alpha="0.7"
+                android:text="@string/backup_note"
+                android:textAppearance="?attr/textAppearanceBodySmall" />
+
+            <Button
+                android:id="@+id/export_settings_button"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/export_settings_button" />
+
+            <Button
+                android:id="@+id/import_settings_button"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/import_settings_button" />
+        </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
+        style="@style/Widget.Material3.CardView.Outlined"
+        android:id="@+id/updates_card"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="4dp">
+
 
         <TextView
             android:id="@+id/updates_section_label"
             style="@style/SectionHeader"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:visibility="gone"
+            android:background="?attr/selectableItemBackground"
+            android:drawablePadding="8dp"
+            android:drawableTint="?attr/colorPrimary"
+            android:gravity="center_vertical"
+            android:minHeight="48dp"
             android:text="@string/updates_section" />
+
+        <LinearLayout
+            android:id="@+id/updates_section_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="12dp"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
 
         <Button
             android:id="@+id/check_updates_button"
+            style="@style/Widget.Material3.Button.TonalButton"
             app:icon="@drawable/ic_system_update"
             app:iconPadding="8dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:visibility="gone"
             android:text="@string/check_updates_button" />
+
+        </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
     </LinearLayout>
 
@@ -367,8 +880,9 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
+        android:layout_gravity="center_horizontal"
         android:alpha="0.6"
-        android:textSize="12sp" />
+        android:textAppearance="?attr/textAppearanceBodySmall" />
 
 </LinearLayout>
 

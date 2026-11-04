@@ -1,11 +1,8 @@
 <resources>
     <style name="Theme.PebbleRecorder" parent="Theme.Material3.DayNight.NoActionBar" />
 
+    <!-- Material 3 group heading: title-medium type in the primary colour, sentence case. -->
     <style name="SectionHeader" parent="TextAppearance.Material3.TitleMedium">
-        <item name="android:textSize">18sp</item>
-        <item name="android:textStyle">bold</item>
         <item name="android:textColor">?attr/colorPrimary</item>
-        <item name="android:textAllCaps">true</item>
-        <item name="android:letterSpacing">0.08</item>
     </style>
 </resources>

@@ -20,8 +20,18 @@ android {
         applicationId = "com.pebblerecorder.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 25
-        versionName = "1.3.0"
+        versionCode = 26
+        versionName = "1.4.0"
+
+        // whisper.cpp is only worth shipping for 64-bit ARM (phones) and x86_64 (emulator).
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     // AGP embeds a "Dependency metadata" signing block by default (Play Console integrity
@@ -88,6 +98,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation("junit:junit:4.13.2")
+    // The Android stubs of org.json do nothing in unit tests; this is the real implementation.
+    testImplementation("org.json:json:20231013")
 }
 
 // Keeps the "github" flavor's bundled assets/watch.pbw (used by the in-app "Install the app on

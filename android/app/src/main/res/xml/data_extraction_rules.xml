@@ -6,11 +6,15 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="gemini_prefs.xml" />
+        <exclude domain="sharedpref" path="transcription_prefs.xml" />
+        <exclude domain="file" path="whisper/" />
         <exclude domain="sharedpref" path="webhook_prefs.xml" />
         <exclude domain="sharedpref" path="recording_folder.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="gemini_prefs.xml" />
+        <exclude domain="sharedpref" path="transcription_prefs.xml" />
+        <exclude domain="file" path="whisper/" />
         <exclude domain="sharedpref" path="webhook_prefs.xml" />
         <exclude domain="sharedpref" path="recording_folder.xml" />
     </device-transfer>

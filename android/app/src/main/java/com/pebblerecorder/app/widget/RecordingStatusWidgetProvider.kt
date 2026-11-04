@@ -6,9 +6,12 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
+import android.view.View
 import android.widget.RemoteViews
 import com.pebblerecorder.app.R
 import com.pebblerecorder.app.connectivity.PebbleListenerService
+import com.pebblerecorder.app.connectivity.WatchProtocol
 import com.pebblerecorder.app.recording.RecordingState
 import com.pebblerecorder.app.recording.RecordingStatus
 import com.pebblerecorder.app.ui.MainActivity
@@ -48,6 +51,25 @@ class RecordingStatusWidgetProvider : AppWidgetProvider() {
             setTextViewText(R.id.widget_status_text, context.getString(labelRes))
             setImageViewResource(R.id.widget_status_dot, dotRes)
             setOnClickPendingIntent(R.id.widget_root, openApp)
+            // Record when idle, stop otherwise - a tap from the home screen, no need to open the app.
+            val recording = state != RecordingState.IDLE
+            // A Chronometer counts by itself, so the widget needn't be redrawn every second.
+            setViewVisibility(R.id.widget_timer, if (recording) View.VISIBLE else View.GONE)
+            if (recording) {
+                val elapsedMs = RecordingStatus.progress.value.elapsedSeconds * 1000L
+                setChronometer(R.id.widget_timer, SystemClock.elapsedRealtime() - elapsedMs, null, state == RecordingState.RECORDING)
+            }
+            setImageViewResource(
+                R.id.widget_record_button,
+                if (recording) R.drawable.widget_ic_stop else R.drawable.widget_ic_record,
+            )
+            setOnClickPendingIntent(
+                R.id.widget_record_button,
+                PebbleListenerService.commandPendingIntent(
+                    context,
+                    if (recording) WatchProtocol.COMMAND_STOP else WatchProtocol.COMMAND_START,
+                ),
+            )
         }
         manager.updateAppWidget(id, views)
     }
