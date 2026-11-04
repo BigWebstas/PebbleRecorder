@@ -1,0 +1,1 @@
+Record, pause and stop from the phone, with a status card and a pulsing recording indicator. A visible notification while recording. Optional Do Not Disturb while recording. The local webhook now imports audio sent with a request and processes it like an in-app recording. Fixes the home-screen widget, which 1.2.0 removed from home screens - add it again once.
