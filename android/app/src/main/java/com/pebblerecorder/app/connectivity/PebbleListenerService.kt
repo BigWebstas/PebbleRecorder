@@ -30,7 +30,7 @@ import com.pebblerecorder.app.settings.WatchPrefs
 import com.pebblerecorder.app.settings.WebhookPrefs
 import com.pebblerecorder.app.transcription.TranscriptionPipeline
 import com.pebblerecorder.app.ui.MainActivity
-import com.pebblerecorder.app.ui.widget.RecordingStatusWidgetProvider
+import com.pebblerecorder.app.widget.RecordingStatusWidgetProvider
 import io.rebble.pebblekit2.client.BasePebbleListenerService
 import io.rebble.pebblekit2.client.DefaultPebbleSender
 import io.rebble.pebblekit2.common.model.PebbleDictionary

@@ -73,7 +73,7 @@
         <!-- exported=true: the launcher/home-screen process needs to reach this one to bind and
              update the widget; nothing else here is exported for that reason. -->
         <receiver
-            android:name=".ui.widget.RecordingStatusWidgetProvider"
+            android:name=".widget.RecordingStatusWidgetProvider"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
