@@ -51,6 +51,9 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "PebbleListenerService"
 private const val NOTIFICATION_CHANNEL_ID = "recording"
+// A channel's importance can't be raised after creation, so the "recording now" notice gets its
+// own, default-importance channel - it shows above the silent notifications instead of among them.
+private const val ACTIVE_CHANNEL_ID = "recording_active"
 private const val NOTIFICATION_ID = 1
 private const val LEVEL_INTERVAL_MS = 400L
 private const val ACTION_COMMAND = "com.pebblerecorder.app.action.COMMAND"
@@ -361,7 +364,7 @@ class PebbleListenerService : BasePebbleListenerService() {
 
     private fun promoteToRecording() {
         startForegroundTyped(
-            buildNotification(R.string.recording_notification_title),
+            buildNotification(R.string.recording_notification_title, active = true),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
         RecordingStatus.update(RecordingState.RECORDING)
@@ -370,7 +373,7 @@ class PebbleListenerService : BasePebbleListenerService() {
 
     private fun promoteToPaused() {
         startForegroundTyped(
-            buildNotification(R.string.paused_notification_title),
+            buildNotification(R.string.paused_notification_title, active = true),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
         RecordingStatus.update(RecordingState.PAUSED)
@@ -386,17 +389,28 @@ class PebbleListenerService : BasePebbleListenerService() {
     }
 
     private fun createNotificationChannel() {
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
             NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
                 getString(R.string.recording_notification_channel_name),
                 NotificationManager.IMPORTANCE_LOW,
             ),
         )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                ACTIVE_CHANNEL_ID,
+                getString(R.string.recording_active_notification_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ),
+        )
     }
 
-    private fun buildNotification(titleRes: Int): Notification =
-        NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+    /** [active]: a recording is running (or paused), so use the louder channel; otherwise the silent "armed" one. */
+    private fun buildNotification(titleRes: Int, active: Boolean = false): Notification =
+        NotificationCompat.Builder(this, if (active) ACTIVE_CHANNEL_ID else NOTIFICATION_CHANNEL_ID)
+            .setOnlyAlertOnce(true) // alert when recording starts, not again on pause/resume
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setContentTitle(getString(titleRes))
             .setSmallIcon(R.drawable.ic_mic)
             .setOngoing(true)
