@@ -194,6 +194,13 @@
                 android:inputType="none" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/quiet_mode_switch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/quiet_mode_label" />
+
         <Button
             android:id="@+id/choose_folder_button"
             android:layout_width="wrap_content"

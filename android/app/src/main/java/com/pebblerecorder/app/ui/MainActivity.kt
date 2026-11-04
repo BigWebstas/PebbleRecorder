@@ -43,10 +43,12 @@ import com.pebblerecorder.app.connectivity.UpdateChecker
 import com.pebblerecorder.app.recording.RecordingFormat
 import com.pebblerecorder.app.recording.RecordingQuality
 import com.pebblerecorder.app.recording.RecordingSettings
+import com.pebblerecorder.app.recording.QuietMode
 import com.pebblerecorder.app.recording.RecordingState
 import com.pebblerecorder.app.recording.RecordingStatus
 import com.pebblerecorder.app.recording.micSpectrum
 import com.pebblerecorder.app.settings.GeminiPrefs
+import com.pebblerecorder.app.settings.QuietModePrefs
 import com.pebblerecorder.app.settings.RecordingFolderPrefs
 import com.pebblerecorder.app.settings.WEBHOOK_PORT
 import com.pebblerecorder.app.settings.WatchPrefs
@@ -143,6 +145,20 @@ class MainActivity : AppCompatActivity() {
         setUpGeminiSettings()
         setUpRecordingSettings()
         setUpWebhookSettings()
+
+        findViewById<MaterialSwitch>(R.id.quiet_mode_switch).apply {
+            isChecked = QuietModePrefs.isEnabled(this@MainActivity) && QuietMode.hasAccess(this@MainActivity)
+            setOnCheckedChangeListener { _, checked ->
+                if (checked && !QuietMode.hasAccess(this@MainActivity)) {
+                    // Do Not Disturb access is a special permission granted on its own settings page.
+                    isChecked = false
+                    Toast.makeText(this@MainActivity, R.string.quiet_mode_needs_access, Toast.LENGTH_LONG).show()
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                } else {
+                    QuietModePrefs.setEnabled(this@MainActivity, checked)
+                }
+            }
+        }
 
         findViewById<MaterialSwitch>(R.id.watch_touch_switch).apply {
             isChecked = WatchPrefs.isTouchEnabled(this@MainActivity)

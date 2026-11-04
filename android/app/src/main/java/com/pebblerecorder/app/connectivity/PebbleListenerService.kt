@@ -16,7 +16,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.pebblerecorder.app.R
 import com.pebblerecorder.app.recording.AudioRecorder
+import com.pebblerecorder.app.recording.ImportedAudio
 import com.pebblerecorder.app.recording.LevelMonitor
+import com.pebblerecorder.app.recording.QuietMode
 import com.pebblerecorder.app.recording.RecordingLocation
 import com.pebblerecorder.app.recording.RecordingSettings
 import com.pebblerecorder.app.recording.RecordingState
@@ -35,6 +37,7 @@ import io.rebble.pebblekit2.common.model.PebbleDictionary
 import io.rebble.pebblekit2.common.model.PebbleDictionaryItem
 import io.rebble.pebblekit2.common.model.ReceiveResult
 import io.rebble.pebblekit2.common.model.WatchIdentifier
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -88,13 +91,18 @@ class PebbleListenerService : BasePebbleListenerService() {
     private lateinit var audio: AudioRecorder
     private lateinit var location: RecordingLocation
     private lateinit var levelMonitor: LevelMonitor
+    private lateinit var quietMode: QuietMode
     private lateinit var transcription: TranscriptionPipeline
 
     // The watch currently showing our app (null when closed), and the loop streaming it the mic level.
     @Volatile private var activeWatch: WatchIdentifier? = null
     private var levelJob: Job? = null
 
-    private val webhook = WebhookServer(token = { WebhookPrefs.token(this) }, handle = ::handleWebhook)
+    private val webhook = WebhookServer(
+        token = { WebhookPrefs.token(this) },
+        handle = ::handleWebhook,
+        upload = ::handleUpload,
+    )
     // Held as a field: SharedPreferences keeps listeners in a weak map.
     private val webhookPrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> syncWebhookServer() }
 
@@ -104,6 +112,8 @@ class PebbleListenerService : BasePebbleListenerService() {
         audio = AudioRecorder(this)
         location = RecordingLocation(this)
         levelMonitor = LevelMonitor(this)
+        quietMode = QuietMode(this)
+        quietMode.exit() // a previous process may have died mid-recording with Do Not Disturb on
         transcription = TranscriptionPipeline(this, coroutineScope)
         createNotificationChannel()
         coroutineScope.launch(Dispatchers.IO) { recoverOrphanedRecordings(this@PebbleListenerService) }
@@ -203,6 +213,7 @@ class PebbleListenerService : BasePebbleListenerService() {
         return try {
             stopMonitor(demote = false) // MediaRecorder needs the mic to itself on older Android
             promoteToRecording()
+            quietMode.enter()
             location.begin()
             audio.start(target, format)
             Log.d(TAG, "Recording started: ${target.uri}")
@@ -264,6 +275,7 @@ class PebbleListenerService : BasePebbleListenerService() {
     private fun releaseRecording() {
         audio.release()
         location.cancel()
+        quietMode.exit()
         promoteToArmed()
     }
 
@@ -440,6 +452,42 @@ class PebbleListenerService : BasePebbleListenerService() {
         return WebhookServer.Response(if (status == WatchProtocol.STATUS_ERROR) 500 else 200, body)
     }
 
+    /**
+     * A recording sent along with a webhook request (e.g. made on Pebble Index): written to the
+     * same private storage as our own recordings and handed to the same pipeline, so it gets
+     * transcribed (if enabled) and delivered to the recording folder exactly like one recorded here.
+     */
+    private fun handleUpload(mime: String, filename: String?, audio: InputStream): WebhookServer.Response {
+        val head = ByteArray(16)
+        var headSize = 0
+        while (headSize < head.size) {
+            val n = audio.read(head, headSize, head.size - headSize)
+            if (n < 0) break
+            headSize += n
+        }
+        if (headSize == 0) return WebhookServer.Response(400, """{"error":"empty recording"}""")
+        val extension = ImportedAudio.extensionOf(head.copyOf(headSize), filename, mime)
+            ?: return WebhookServer.Response(415, """{"error":"unsupported audio type"}""")
+
+        val finalName = "recording-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}-rec.$extension"
+        val target = createRecordingTarget(this, finalName)
+            ?: return WebhookServer.Response(500, """{"error":"no folder to save to"}""")
+        return try {
+            target.file.outputStream().use { out ->
+                out.write(head, 0, headSize)
+                audio.copyTo(out)
+            }
+            // No location: it's the phone's position now, not where the recording was made.
+            transcription.finish(target, null)
+            Log.d(TAG, "Received uploaded recording $finalName (${target.file.length()} bytes)")
+            WebhookServer.Response(200, """{"status":"received","name":"$finalName"}""")
+        } catch (e: Exception) {
+            Log.w(TAG, "Upload failed", e)
+            target.delete(this)
+            WebhookServer.Response(500, """{"error":"upload failed"}""")
+        }
+    }
+
     /** Runs the webhook server exactly while the setting is on; called at startup and on every change. */
     private fun syncWebhookServer() {
         if (WebhookPrefs.isEnabled(this)) webhook.start(WEBHOOK_PORT) else webhook.stop()
@@ -459,6 +507,7 @@ class PebbleListenerService : BasePebbleListenerService() {
         transcription.deliverPending()
         audio.release()
         location.cancel()
+        quietMode.exit()
         sender.close()
         super.onDestroy()
     }

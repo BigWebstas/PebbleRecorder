@@ -21,6 +21,8 @@
     <string name="battery_unrestricted">Battery: unrestricted</string>
     <string name="battery_restricted">Battery: restricted — Android may kill the watch trigger in the background; allow unrestricted use below</string>
     <string name="battery_settings_button">Allow unrestricted battery use</string>
+    <string name="quiet_mode_label">Do Not Disturb while recording</string>
+    <string name="quiet_mode_needs_access">Allow Do Not Disturb access for PebbleRecorder, then turn this on again</string>
     <string name="record_button">Record</string>
     <string name="stop_button">Stop</string>
     <string name="pause_button">Pause</string>
@@ -69,7 +71,7 @@
     <string name="quality_standard">Standard</string>
     <string name="quality_high">High - largest files</string>
     <string name="webhook_label">Local webhook (Pebble Index)</string>
-    <string name="webhook_url">POST %1$s\nAuthorization: Bearer token\n(/toggle, /start, /stop, /status)</string>
+    <string name="webhook_url">POST %1$s\nAuthorization: Bearer token\n(/toggle, /start, /stop, /status)\nAudio in the body (raw or multipart) is imported as a recording</string>
     <string name="webhook_copy_token">Copy token</string>
     <string name="webhook_regenerate_token">New token</string>
     <string name="webhook_token_copied">Token copied</string>

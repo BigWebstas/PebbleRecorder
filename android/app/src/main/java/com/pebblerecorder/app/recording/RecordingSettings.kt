@@ -47,11 +47,15 @@ enum class RecordingFormat(
 
     companion object {
         /** MIME type for a recording file name; unknown extensions are treated as the default AAC. */
-        fun mimeTypeOf(fileName: String?): String =
-            entries.firstOrNull { it.extension == fileName?.substringAfterLast('.', "") }?.mimeType ?: AAC.mimeType
+        fun mimeTypeOf(fileName: String?): String {
+            val extension = fileName?.substringAfterLast('.', "")
+            return entries.firstOrNull { it.extension == extension }?.mimeType
+                ?: ImportedAudio.extraMimeTypes[extension]
+                ?: AAC.mimeType
+        }
 
         fun isRecordingFile(fileName: String): Boolean =
-            entries.any { it.extension == fileName.substringAfterLast('.', "") }
+            ImportedAudio.isSupported(fileName.substringAfterLast('.', ""))
     }
 }
 

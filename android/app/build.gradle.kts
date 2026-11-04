@@ -27,6 +27,11 @@ android {
     // AGP embeds a "Dependency metadata" signing block by default (Play Console integrity
     // checks, irrelevant since this app isn't distributed there) - F-Droid's binary scanner
     // rejects any extra signing block in a reproducible-build reference APK, so turn it off.
+    testOptions {
+        // The server under test logs through android.util.Log.
+        unitTests.isReturnDefaultValues = true
+    }
+
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
@@ -81,6 +86,8 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.pebblekit.client)
     implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Keeps the "github" flavor's bundled assets/watch.pbw (used by the in-app "Install the app on
