@@ -1,4 +1,4 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.connectivity
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.pebblerecorder.app.R
+import com.pebblerecorder.app.ui.MainActivity
 
 private const val NOTIFICATION_CHANNEL_ID = "recording"
 private const val REARM_NOTIFICATION_ID = 2

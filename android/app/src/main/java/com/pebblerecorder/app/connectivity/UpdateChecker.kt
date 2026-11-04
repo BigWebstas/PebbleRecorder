@@ -1,13 +1,13 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.connectivity
 
 import android.content.Context
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 private const val LATEST_RELEASE_URL = "https://api.github.com/repos/BigWebstas/PebbleRecorder/releases/latest"
 

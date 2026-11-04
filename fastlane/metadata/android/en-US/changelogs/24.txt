@@ -1,0 +1,1 @@
+Advanced settings are now organized into sections (Recording, Connectivity, Transcription, Watch, Updates) and the screen scrolls so they are never cut off. New option to turn off touch controls on the watch. Recording folder, Gemini transcription and location settings moved under Show advanced.

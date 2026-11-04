@@ -1,4 +1,4 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.settings
 
 import android.content.Context
 

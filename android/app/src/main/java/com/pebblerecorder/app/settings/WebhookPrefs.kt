@@ -1,8 +1,9 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.settings
 
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Base64
+import com.pebblerecorder.app.connectivity.WebhookServer
 import java.security.SecureRandom
 
 const val WEBHOOK_PORT = 47630

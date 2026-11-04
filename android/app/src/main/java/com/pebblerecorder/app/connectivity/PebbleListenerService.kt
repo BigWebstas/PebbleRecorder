@@ -1,4 +1,4 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.connectivity
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -23,16 +23,38 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
-import com.pebblerecorder.app.widget.RecordingStatusWidgetProvider
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.pebblerecorder.app.R
+import com.pebblerecorder.app.recording.RecordingSettings
+import com.pebblerecorder.app.recording.RecordingState
+import com.pebblerecorder.app.recording.RecordingStatus
+import com.pebblerecorder.app.recording.RecordingTarget
+import com.pebblerecorder.app.recording.createRecordingTarget
+import com.pebblerecorder.app.recording.recoverOrphanedRecordings
+import com.pebblerecorder.app.settings.GeminiPrefs
+import com.pebblerecorder.app.settings.RecordingFolderPrefs
+import com.pebblerecorder.app.settings.WEBHOOK_PORT
+import com.pebblerecorder.app.settings.WatchPrefs
+import com.pebblerecorder.app.settings.WebhookPrefs
+import com.pebblerecorder.app.transcription.GeminiTranscriber
+import com.pebblerecorder.app.ui.MainActivity
+import com.pebblerecorder.app.ui.widget.RecordingStatusWidgetProvider
 import io.rebble.pebblekit2.client.BasePebbleListenerService
 import io.rebble.pebblekit2.client.DefaultPebbleSender
 import io.rebble.pebblekit2.common.model.PebbleDictionary
 import io.rebble.pebblekit2.common.model.PebbleDictionaryItem
 import io.rebble.pebblekit2.common.model.ReceiveResult
 import io.rebble.pebblekit2.common.model.WatchIdentifier
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.CopyOnWriteArraySet
+import kotlin.coroutines.resume
+import kotlin.math.abs
+import kotlin.math.log10
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,14 +62,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.UUID
-import java.util.concurrent.CopyOnWriteArraySet
-import kotlin.math.abs
-import kotlin.math.log10
-import kotlin.coroutines.resume
 
 private const val TAG = "PebbleListenerService"
 private const val NOTIFICATION_CHANNEL_ID = "recording"

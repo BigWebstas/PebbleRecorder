@@ -1,4 +1,4 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.ui
 
 import android.Manifest
 import android.app.ActivityManager
@@ -20,24 +20,39 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.textfield.MaterialAutoCompleteTextView
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.materialswitch.MaterialSwitch
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
-import com.google.android.material.color.DynamicColors
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
-import java.util.Locale
-import kotlinx.coroutines.launch
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.color.DynamicColors
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.textfield.MaterialAutoCompleteTextView
+import com.pebblerecorder.app.R
+import com.pebblerecorder.app.connectivity.AvailableUpdate
+import com.pebblerecorder.app.connectivity.PebbleListenerService
+import com.pebblerecorder.app.connectivity.UpdateChecker
+import com.pebblerecorder.app.recording.RecordingFormat
+import com.pebblerecorder.app.recording.RecordingQuality
+import com.pebblerecorder.app.recording.RecordingSettings
+import com.pebblerecorder.app.recording.RecordingState
+import com.pebblerecorder.app.recording.RecordingStatus
+import com.pebblerecorder.app.recording.micSpectrum
+import com.pebblerecorder.app.settings.GeminiPrefs
+import com.pebblerecorder.app.settings.RecordingFolderPrefs
+import com.pebblerecorder.app.settings.WEBHOOK_PORT
+import com.pebblerecorder.app.settings.WatchPrefs
+import com.pebblerecorder.app.settings.WebhookPrefs
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.Locale
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
@@ -124,7 +139,8 @@ class MainActivity : AppCompatActivity() {
             // Only the github flavor self-updates - see app/build.gradle.kts.
             if (resources.getBoolean(R.bool.has_update_checker)) {
                 visibility = View.VISIBLE
-                findViewById<View>(R.id.updates_section_label).visibility = View.VISIBLE
+                this@MainActivity.findViewById<View>(R.id.updates_section_label).visibility = View.VISIBLE
+                this@MainActivity.findViewById<View>(R.id.updates_divider).visibility = View.VISIBLE
                 setOnClickListener { checkForUpdate(userInitiated = true) }
                 if (savedInstanceState == null) checkForUpdate(userInitiated = false)
             }

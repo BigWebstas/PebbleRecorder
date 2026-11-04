@@ -25,7 +25,7 @@
         android:dataExtractionRules="@xml/data_extraction_rules">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.PebbleRecorder">
@@ -48,7 +48,7 @@
           is already in the foreground by the time a watch COMMAND arrives.
         -->
         <service
-            android:name=".PebbleListenerService"
+            android:name=".connectivity.PebbleListenerService"
             android:exported="true"
             android:foregroundServiceType="specialUse|microphone">
             <intent-filter>
@@ -61,7 +61,7 @@
 
         <!-- Re-arms PebbleListenerService after a reboot - see BootCompletedReceiver.kt. -->
         <receiver
-            android:name=".BootCompletedReceiver"
+            android:name=".connectivity.BootCompletedReceiver"
             android:exported="true"
             android:enabled="true">
             <intent-filter>
@@ -72,7 +72,7 @@
         <!-- exported=true: the launcher/home-screen process needs to reach this one to bind and
              update the widget; nothing else here is exported for that reason. -->
         <receiver
-            android:name=".widget.RecordingStatusWidgetProvider"
+            android:name=".ui.widget.RecordingStatusWidgetProvider"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

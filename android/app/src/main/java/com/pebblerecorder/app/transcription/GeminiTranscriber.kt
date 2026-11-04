@@ -1,17 +1,19 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.transcription
 
 import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import android.util.Log
+import com.pebblerecorder.app.recording.RecordingFormat
+import com.pebblerecorder.app.settings.GeminiPrefs
+import java.io.IOException
+import java.net.URL
+import javax.net.ssl.HttpsURLConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.IOException
-import java.net.URL
-import javax.net.ssl.HttpsURLConnection
 
 private const val TAG = "GeminiTranscriber"
 

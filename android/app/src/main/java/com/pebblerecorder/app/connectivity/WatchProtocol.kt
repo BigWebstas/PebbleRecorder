@@ -1,4 +1,4 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.connectivity
 
 import java.util.UUID
 

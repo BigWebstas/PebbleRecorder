@@ -1,4 +1,4 @@
-package com.pebblerecorder.app
+package com.pebblerecorder.app.recording
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -6,6 +6,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Build
+import com.pebblerecorder.app.R
 
 private const val PREFS_NAME = "recording_prefs"
 private const val KEY_FORMAT = "format"
