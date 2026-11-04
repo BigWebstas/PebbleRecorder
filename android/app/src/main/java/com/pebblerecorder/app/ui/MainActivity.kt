@@ -1,6 +1,8 @@
 package com.pebblerecorder.app.ui
 
 import android.Manifest
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.ActivityManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -8,6 +10,8 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -26,6 +30,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -33,6 +38,7 @@ import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import com.pebblerecorder.app.R
 import com.pebblerecorder.app.connectivity.AvailableUpdate
 import com.pebblerecorder.app.connectivity.PebbleListenerService
+import com.pebblerecorder.app.connectivity.WatchProtocol
 import com.pebblerecorder.app.connectivity.UpdateChecker
 import com.pebblerecorder.app.recording.RecordingFormat
 import com.pebblerecorder.app.recording.RecordingQuality
@@ -66,6 +72,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recordingProgressText: TextView
     private lateinit var batterySettingsButton: Button
     private lateinit var spectrogram: SpectrogramView
+    private lateinit var statusDot: View
+    private lateinit var recordButton: MaterialButton
+    private lateinit var pauseButton: MaterialButton
+    private var dotPulse: ObjectAnimator? = null
     private var spectrogramJob: Job? = null
 
     private val pickFolder = registerForActivityResult(
@@ -103,6 +113,11 @@ class MainActivity : AppCompatActivity() {
         recordingProgressText = findViewById(R.id.recording_progress_text)
         batterySettingsButton = findViewById(R.id.battery_settings_button)
         spectrogram = findViewById(R.id.spectrogram)
+        statusDot = findViewById(R.id.status_dot)
+        recordButton = findViewById(R.id.record_button)
+        pauseButton = findViewById(R.id.pause_button)
+        recordButton.setOnClickListener { onRecordClicked() }
+        pauseButton.setOnClickListener { onPauseClicked() }
         batterySettingsButton.setOnClickListener { openBatterySettings() }
         findViewById<Button>(R.id.choose_folder_button).setOnClickListener {
             pickFolder.launch(null)
@@ -156,6 +171,7 @@ class MainActivity : AppCompatActivity() {
                     RecordingState.PAUSED -> R.string.status_paused
                 }
                 recordingStatusText.text = getString(R.string.status_label, getString(labelRes))
+                showControls(state)
             }
         }
 
@@ -195,6 +211,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         refreshMicDropdown()
+        showControls(RecordingStatus.state.value)
         spectrogramJob = lifecycleScope.launch {
             RecordingStatus.state.collectLatest { showSpectrogram(it) }
         }
@@ -202,12 +219,64 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         spectrogramJob?.cancel()
+        dotPulse?.cancel()
         super.onStop()
     }
 
     override fun onResume() {
         super.onResume()
         updateStatus()
+    }
+
+    private fun onRecordClicked() {
+        if (RecordingStatus.state.value != RecordingState.IDLE) {
+            PebbleListenerService.sendCommand(this, WatchProtocol.COMMAND_STOP)
+        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            PebbleListenerService.sendCommand(this, WatchProtocol.COMMAND_START)
+        } else {
+            requestPermissions.launch(requiredPermissions())
+        }
+    }
+
+    private fun onPauseClicked() {
+        val command = if (RecordingStatus.state.value == RecordingState.PAUSED) {
+            WatchProtocol.COMMAND_RESUME
+        } else {
+            WatchProtocol.COMMAND_PAUSE
+        }
+        PebbleListenerService.sendCommand(this, command)
+    }
+
+    /** Record/stop and pause/resume buttons, and the status dot: pulsing red while recording, amber when paused. */
+    private fun showControls(state: RecordingState) {
+        val idle = state == RecordingState.IDLE
+        recordButton.setText(if (idle) R.string.record_button else R.string.stop_button)
+        recordButton.setIconResource(if (idle) R.drawable.ic_record else R.drawable.ic_stop)
+        pauseButton.visibility = if (idle) View.GONE else View.VISIBLE
+        val paused = state == RecordingState.PAUSED
+        pauseButton.setText(if (paused) R.string.resume_button else R.string.pause_button)
+        pauseButton.setIconResource(if (paused) R.drawable.ic_play else R.drawable.ic_pause)
+
+        dotPulse?.cancel()
+        statusDot.alpha = 1f
+        statusDot.backgroundTintList = ColorStateList.valueOf(
+            when (state) {
+                RecordingState.RECORDING -> Color.parseColor("#E53935")
+                RecordingState.PAUSED -> Color.parseColor("#FFB300")
+                RecordingState.IDLE -> MaterialColors.getColor(statusDot, com.google.android.material.R.attr.colorOutline)
+            },
+        )
+        // Skipped when the user turned animations off system-wide.
+        if (state == RecordingState.RECORDING && ValueAnimator.areAnimatorsEnabled()) {
+            dotPulse = ObjectAnimator.ofFloat(statusDot, View.ALPHA, 1f, 0.25f).apply {
+                duration = 800
+                repeatMode = ValueAnimator.REVERSE
+                repeatCount = ValueAnimator.INFINITE
+                start()
+            }
+        }
     }
 
     /**

@@ -21,6 +21,10 @@
     <string name="battery_unrestricted">Battery: unrestricted</string>
     <string name="battery_restricted">Battery: restricted — Android may kill the watch trigger in the background; allow unrestricted use below</string>
     <string name="battery_settings_button">Allow unrestricted battery use</string>
+    <string name="record_button">Record</string>
+    <string name="stop_button">Stop</string>
+    <string name="pause_button">Pause</string>
+    <string name="resume_button">Resume</string>
     <string name="status_label">Status: %1$s</string>
     <string name="status_idle">Idle</string>
     <string name="status_recording">Recording</string>
