@@ -81,6 +81,7 @@
     <string name="reboot_rearm_notification_title">Tap to re-enable the watch trigger</string>
     <string name="reboot_rearm_notification_text">Your phone restarted - open PebbleRecorder once to fully re-arm it for the watch button.</string>
     <string name="widget_status_idle">Idle</string>
+    <string name="widget_subtext">pebble-recorder</string>
     <string name="auto_stopped_title">Recording stopped</string>
     <string name="auto_stopped_silence">Stopped automatically after a long silence</string>
     <string name="auto_stopped_max">Stopped automatically at the length limit</string>
