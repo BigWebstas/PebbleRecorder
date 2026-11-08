@@ -1,0 +1,1 @@
+Widget record-button divider and subtext, full transcript view, watch bookmarking, storage bar and silence threshold markers.
