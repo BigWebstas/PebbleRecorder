@@ -1,9 +1,5 @@
 #include <pebble.h>
 
-// Pebble apps have no runtime API to read their own appinfo version, so this is kept in sync
-// with watch/package.json's "version" field by hand.
-#define APP_VERSION "1.5.1"
-
 // Max distance (px) a touch may travel between touchdown and liftoff and still count as a tap
 // rather than a swipe/drag. Anything past this is ignored.
 #define TOUCH_TAP_SLOP_PX 24
@@ -50,8 +46,21 @@ typedef enum {
 // Peak hold: the marker stays at the loudest recent sample for 1.5 s, then falls back.
 #define PEAK_HOLD_SAMPLES 15
 #define PEAK_DECAY_PER_SAMPLE 4
-// Top of the history strip, just under the level bar.
-#define HISTORY_TOP 146
+
+// Flip clock geometry and animation timing.
+#define CLOCK_DIGIT_COUNT 4
+#define CLOCK_CARD_W 16
+#define CLOCK_CARD_H 21
+#define CLOCK_CARD_HALF_H 10
+#define CLOCK_CARD_GAP 3
+#define CLOCK_COLON_W 8
+#define CLOCK_TOTAL_W (CLOCK_DIGIT_COUNT * CLOCK_CARD_W + 2 * CLOCK_CARD_GAP + CLOCK_COLON_W)
+#define CLOCK_GLYPH_W 8
+#define CLOCK_GLYPH_H 15
+#define CLOCK_GLYPH_X_OFFSET 4
+#define CLOCK_GLYPH_Y_OFFSET 3
+#define CLOCK_FLIP_STEPS 6
+#define CLOCK_FLIP_FRAME_MS 45
 
 // Values received phone -> watch via MESSAGE_KEY_STATUS.
 typedef enum {
@@ -76,11 +85,11 @@ typedef enum {
 static Window *s_window;
 static TextLayer *s_status_layer;
 static TextLayer *s_timer_layer;
-static TextLayer *s_version_layer;
 static TextLayer *s_banner_layer;
 static Layer *s_icon_layer;
 static Layer *s_level_layer;
 static Layer *s_history_layer;
+static Layer *s_clock_layer;
 static int s_level; // mic level 0..100 streamed from the phone whenever the app is open
 static int s_peak;  // peak-hold marker on the level bar, 0..100
 static int s_peak_hold; // samples left before the peak marker starts to fall
@@ -94,7 +103,12 @@ static int s_history_len;
 static int s_history_columns; // strip width in px, one column per px
 static int s_column_peak;
 static int s_column_samples;
-static bool s_history_hides_version; // small screens: the strip takes the version label's place
+static uint8_t s_clock_digits[CLOCK_DIGIT_COUNT];
+static uint8_t s_clock_prev_digits[CLOCK_DIGIT_COUNT];
+static bool s_clock_flipping[CLOCK_DIGIT_COUNT];
+static int s_clock_flip_step;
+static bool s_clock_initialized;
+static AppTimer *s_clock_flip_timer;
 static AppState s_state = APP_STATE_NO_PHONE;
 static time_t s_recording_start_time;
 static time_t s_pause_started_at; // 0 when not currently paused
@@ -280,6 +294,213 @@ static void prv_queue_levels(const uint8_t *levels, int count) {
   }
 }
 
+// 8x15 bold split-flap digit bitmaps (0..9), bit 7 is leftmost pixel.
+static const uint8_t s_clock_glyphs[10][CLOCK_GLYPH_H] = {
+  // 0
+  {0x3C, 0x3C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x3C},
+  // 1
+  {0x18, 0x18, 0x38, 0x38, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x7E},
+  // 2
+  {0x3C, 0x3C, 0x66, 0x66, 0x06, 0x06, 0x1C, 0x1C, 0x1C, 0x30, 0x30, 0x60, 0x60, 0x7E, 0x7E},
+  // 3
+  {0x3C, 0x3C, 0x66, 0x66, 0x06, 0x06, 0x1C, 0x1C, 0x1C, 0x06, 0x06, 0x66, 0x66, 0x3C, 0x3C},
+  // 4
+  {0x0C, 0x0C, 0x1C, 0x1C, 0x2C, 0x2C, 0x4C, 0x4C, 0x7E, 0x7E, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C},
+  // 5
+  {0x7E, 0x7E, 0x60, 0x60, 0x60, 0x60, 0x7C, 0x7C, 0x06, 0x06, 0x06, 0x66, 0x66, 0x3C, 0x3C},
+  // 6
+  {0x3C, 0x3C, 0x66, 0x66, 0x60, 0x60, 0x7C, 0x7C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x3C},
+  // 7
+  {0x7E, 0x7E, 0x66, 0x66, 0x06, 0x06, 0x0C, 0x0C, 0x0C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18},
+  // 8
+  {0x3C, 0x3C, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x3C, 0x3C, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x3C},
+  // 9
+  {0x3C, 0x3C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3E, 0x3E, 0x06, 0x06, 0x66, 0x66, 0x3C, 0x3C},
+};
+
+static GColor prv_background_color_for_state(AppState state) {
+  switch (state) {
+    case APP_STATE_RECORDING: return PBL_IF_COLOR_ELSE(GColorRed, GColorWhite);
+    case APP_STATE_PAUSED:    return PBL_IF_COLOR_ELSE(GColorBlue, GColorWhite);
+    default:                  return GColorWhite;
+  }
+}
+
+// Draws one horizontal row (`card_row` in 0..CLOCK_CARD_H-1) of `digit`'s glyph inside a card.
+static void prv_draw_card_digit_row(GContext *ctx, int card_x, int draw_y, int card_row, uint8_t digit) {
+  int glyph_row = card_row - CLOCK_GLYPH_Y_OFFSET;
+  if (glyph_row < 0 || glyph_row >= CLOCK_GLYPH_H || digit > 9) {
+    return;
+  }
+  uint8_t mask = s_clock_glyphs[digit][glyph_row];
+  for (int dx = 0; dx < CLOCK_GLYPH_W; dx++) {
+    if (mask & (1 << (7 - dx))) {
+      graphics_draw_pixel(ctx, GPoint(card_x + CLOCK_GLYPH_X_OFFSET + dx, draw_y));
+    }
+  }
+}
+
+static void prv_draw_flip_card(GContext *ctx, int card_x, int card_y, int index, GColor card_fill, GColor card_fg) {
+  uint8_t cur_digit = s_clock_digits[index];
+  uint8_t prev_digit = s_clock_prev_digits[index];
+  bool flipping = s_clock_flipping[index] && s_clock_flip_step > 0;
+
+  graphics_context_set_fill_color(ctx, card_fill);
+  graphics_fill_rect(ctx, GRect(card_x, card_y, CLOCK_CARD_W, CLOCK_CARD_H), 2, GCornersAll);
+
+  // Stationary halves: while flipping, the top half already reveals `cur_digit` underneath the
+  // folding top flap, and the bottom half still shows `prev_digit` until covered by the bottom flap.
+  graphics_context_set_stroke_color(ctx, card_fg);
+  for (int r = 0; r < CLOCK_CARD_HALF_H; r++) {
+    prv_draw_card_digit_row(ctx, card_x, card_y + r, r, cur_digit);
+  }
+  uint8_t bottom_base_digit = flipping ? prev_digit : cur_digit;
+  for (int r = CLOCK_CARD_HALF_H + 1; r < CLOCK_CARD_H; r++) {
+    prv_draw_card_digit_row(ctx, card_x, card_y + r, r, bottom_base_digit);
+  }
+
+  if (flipping) {
+    int half_steps = CLOCK_FLIP_STEPS / 2;
+    if (s_clock_flip_step <= half_steps) {
+      // Phase 1: top flap (showing prev_digit) folds down toward the center split line.
+      int flap_h = (CLOCK_CARD_HALF_H * (half_steps - s_clock_flip_step + 1)) / (half_steps + 1);
+      if (flap_h < 1) {
+        flap_h = 1;
+      }
+      int flap_top = CLOCK_CARD_HALF_H - flap_h;
+      graphics_context_set_fill_color(ctx, card_fill);
+      graphics_fill_rect(ctx, GRect(card_x, card_y + flap_top, CLOCK_CARD_W, flap_h), 0, GCornerNone);
+      graphics_context_set_stroke_color(ctx, card_fg);
+      if (flap_top > 0) {
+        graphics_draw_line(ctx, GPoint(card_x, card_y + flap_top - 1),
+                           GPoint(card_x + CLOCK_CARD_W - 1, card_y + flap_top - 1));
+      }
+      for (int fy = 0; fy < flap_h; fy++) {
+        int src_r = (fy * CLOCK_CARD_HALF_H) / flap_h;
+        prv_draw_card_digit_row(ctx, card_x, card_y + flap_top + fy, src_r, prev_digit);
+      }
+    } else {
+      // Phase 2: bottom flap (showing cur_digit) unfolds down from the center split line.
+      int unfold_step = s_clock_flip_step - half_steps;
+      int flap_h = (CLOCK_CARD_HALF_H * unfold_step) / (half_steps + 1);
+      if (flap_h < 1) {
+        flap_h = 1;
+      }
+      int flap_top = CLOCK_CARD_HALF_H + 1;
+      graphics_context_set_fill_color(ctx, card_fill);
+      graphics_fill_rect(ctx, GRect(card_x, card_y + flap_top, CLOCK_CARD_W, flap_h), 0, GCornerNone);
+      graphics_context_set_stroke_color(ctx, card_fg);
+      if (flap_top + flap_h < CLOCK_CARD_H) {
+        graphics_draw_line(ctx, GPoint(card_x, card_y + flap_top + flap_h),
+                           GPoint(card_x + CLOCK_CARD_W - 1, card_y + flap_top + flap_h));
+      }
+      for (int fy = 0; fy < flap_h; fy++) {
+        int src_r = CLOCK_CARD_HALF_H + 1 + (fy * CLOCK_CARD_HALF_H) / flap_h;
+        prv_draw_card_digit_row(ctx, card_x, card_y + flap_top + fy, src_r, cur_digit);
+      }
+    }
+  }
+
+  // Split-flap horizontal center crease and side hinge notches.
+  int crease_y = card_y + CLOCK_CARD_HALF_H;
+  graphics_context_set_stroke_color(ctx, card_fg);
+  graphics_draw_line(ctx, GPoint(card_x, crease_y), GPoint(card_x + CLOCK_CARD_W - 1, crease_y));
+  graphics_draw_pixel(ctx, GPoint(card_x, crease_y - 1));
+  graphics_draw_pixel(ctx, GPoint(card_x, crease_y + 1));
+  graphics_draw_pixel(ctx, GPoint(card_x + CLOCK_CARD_W - 1, crease_y - 1));
+  graphics_draw_pixel(ctx, GPoint(card_x + CLOCK_CARD_W - 1, crease_y + 1));
+}
+
+static void prv_clock_layer_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  int start_x = (bounds.size.w - CLOCK_TOTAL_W) / 2;
+  int card_y = (bounds.size.h - CLOCK_CARD_H) / 2;
+  GColor card_fill = s_icon_color;
+  GColor card_fg = prv_background_color_for_state(s_state);
+
+  int x = start_x;
+  prv_draw_flip_card(ctx, x, card_y, 0, card_fill, card_fg);
+  x += CLOCK_CARD_W + CLOCK_CARD_GAP;
+  prv_draw_flip_card(ctx, x, card_y, 1, card_fill, card_fg);
+  x += CLOCK_CARD_W;
+
+  // Colon between hours and minutes.
+  graphics_context_set_fill_color(ctx, card_fill);
+  int colon_x = x + (CLOCK_COLON_W - 2) / 2;
+  graphics_fill_rect(ctx, GRect(colon_x, card_y + 6, 2, 2), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(colon_x, card_y + CLOCK_CARD_H - 8, 2, 2), 0, GCornerNone);
+  x += CLOCK_COLON_W;
+
+  prv_draw_flip_card(ctx, x, card_y, 2, card_fill, card_fg);
+  x += CLOCK_CARD_W + CLOCK_CARD_GAP;
+  prv_draw_flip_card(ctx, x, card_y, 3, card_fill, card_fg);
+}
+
+static void prv_clock_flip_timer_callback(void *data) {
+  s_clock_flip_timer = NULL;
+  s_clock_flip_step++;
+  if (s_clock_flip_step > CLOCK_FLIP_STEPS) {
+    s_clock_flip_step = 0;
+    for (int i = 0; i < CLOCK_DIGIT_COUNT; i++) {
+      s_clock_flipping[i] = false;
+      s_clock_prev_digits[i] = s_clock_digits[i];
+    }
+  } else {
+    s_clock_flip_timer = app_timer_register(CLOCK_FLIP_FRAME_MS, prv_clock_flip_timer_callback, NULL);
+  }
+  layer_mark_dirty(s_clock_layer);
+}
+
+static void prv_update_clock(const struct tm *tick_time, bool animate) {
+  int hour = tick_time->tm_hour;
+  if (!clock_is_24h_style()) {
+    hour %= 12;
+    if (hour == 0) {
+      hour = 12;
+    }
+  }
+  int min = tick_time->tm_min;
+  uint8_t next_digits[CLOCK_DIGIT_COUNT] = {
+    (uint8_t)(hour / 10),
+    (uint8_t)(hour % 10),
+    (uint8_t)(min / 10),
+    (uint8_t)(min % 10),
+  };
+
+  if (!s_clock_initialized || !animate) {
+    for (int i = 0; i < CLOCK_DIGIT_COUNT; i++) {
+      s_clock_digits[i] = next_digits[i];
+      s_clock_prev_digits[i] = next_digits[i];
+      s_clock_flipping[i] = false;
+    }
+    s_clock_flip_step = 0;
+    s_clock_initialized = true;
+    if (s_clock_layer) {
+      layer_mark_dirty(s_clock_layer);
+    }
+    return;
+  }
+
+  bool any_changed = false;
+  for (int i = 0; i < CLOCK_DIGIT_COUNT; i++) {
+    if (next_digits[i] != s_clock_digits[i]) {
+      s_clock_prev_digits[i] = s_clock_digits[i];
+      s_clock_digits[i] = next_digits[i];
+      s_clock_flipping[i] = true;
+      any_changed = true;
+    }
+  }
+
+  if (any_changed) {
+    s_clock_flip_step = 1;
+    if (s_clock_flip_timer) {
+      app_timer_cancel(s_clock_flip_timer);
+    }
+    s_clock_flip_timer = app_timer_register(CLOCK_FLIP_FRAME_MS, prv_clock_flip_timer_callback, NULL);
+    layer_mark_dirty(s_clock_layer);
+  }
+}
+
 static void prv_update_timer_text(void) {
   int elapsed = (int)(time(NULL) - s_recording_start_time);
   if (elapsed < 0) {
@@ -290,7 +511,12 @@ static void prv_update_timer_text(void) {
 }
 
 static void prv_tick_handler(struct tm *tick_time, TimeUnits units_changed) {
-  prv_update_timer_text();
+  if (s_state == APP_STATE_RECORDING || s_state == APP_STATE_PAUSING) {
+    prv_update_timer_text();
+  }
+  if (units_changed & MINUTE_UNIT) {
+    prv_update_clock(tick_time, true);
+  }
 }
 
 static void prv_set_state(AppState state) {
@@ -313,12 +539,7 @@ static void prv_set_state(AppState state) {
 
   // Color platforms turn red while recording and blue while paused; B&W platforms can't
   // represent either, so they keep the default white background and rely on the text label.
-  GColor background;
-  switch (state) {
-    case APP_STATE_RECORDING: background = PBL_IF_COLOR_ELSE(GColorRed, GColorWhite); break;
-    case APP_STATE_PAUSED:    background = PBL_IF_COLOR_ELSE(GColorBlue, GColorWhite); break;
-    default:                  background = GColorWhite; break;
-  }
+  GColor background = prv_background_color_for_state(state);
   window_set_background_color(s_window, background);
 
   bool light_foreground = PBL_IF_COLOR_ELSE(
@@ -327,8 +548,8 @@ static void prv_set_state(AppState state) {
   s_icon_color = foreground;
   text_layer_set_text_color(s_status_layer, foreground);
   text_layer_set_text_color(s_timer_layer, foreground);
-  text_layer_set_text_color(s_version_layer, foreground);
   layer_mark_dirty(s_icon_layer);
+  layer_mark_dirty(s_clock_layer);
 
   // The phone streams the mic level whenever the app is open and connected, recording or not.
   bool show_levels = state != APP_STATE_NO_PHONE && state != APP_STATE_ERROR;
@@ -337,7 +558,6 @@ static void prv_set_state(AppState state) {
   }
   layer_set_hidden(s_level_layer, !show_levels);
   layer_set_hidden(s_history_layer, !show_levels);
-  layer_set_hidden(text_layer_get_layer(s_version_layer), show_levels && s_history_hides_version);
   layer_mark_dirty(s_level_layer);
   layer_mark_dirty(s_history_layer);
 
@@ -353,24 +573,27 @@ static void prv_set_state(AppState state) {
         s_recording_start_time = time(NULL);
       }
       prv_update_timer_text();
-      tick_timer_service_subscribe(SECOND_UNIT, prv_tick_handler);
+      tick_timer_service_subscribe(SECOND_UNIT | MINUTE_UNIT, prv_tick_handler);
       break;
     case APP_STATE_PAUSING:
       // Still actually recording until the phone confirms the pause.
       prv_update_timer_text();
-      tick_timer_service_subscribe(SECOND_UNIT, prv_tick_handler);
+      tick_timer_service_subscribe(SECOND_UNIT | MINUTE_UNIT, prv_tick_handler);
       break;
     case APP_STATE_PAUSED:
       if (s_pause_started_at == 0) {
         s_pause_started_at = time(NULL);
       }
+      tick_timer_service_subscribe(MINUTE_UNIT, prv_tick_handler);
       break;
     case APP_STATE_RESUMING:
       // Still paused until the phone confirms the resume; leave the frozen value as-is.
+      tick_timer_service_subscribe(MINUTE_UNIT, prv_tick_handler);
       break;
     default:
       s_pause_started_at = 0;
       text_layer_set_text(s_timer_layer, "");
+      tick_timer_service_subscribe(MINUTE_UNIT, prv_tick_handler);
       break;
   }
 }
@@ -686,32 +909,25 @@ static void prv_bluetooth_connection_handler(bool connected) {
 static void prv_window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
+  int top_offset = bounds.size.h >= 200 ? 14 : 0;
 
-  s_icon_layer = layer_create(GRect(0, 20, bounds.size.w, 46));
+  s_icon_layer = layer_create(GRect(0, 8 + top_offset, bounds.size.w, 40));
   layer_set_update_proc(s_icon_layer, prv_icon_layer_update_proc);
   layer_add_child(window_layer, s_icon_layer);
 
-  GRect level_frame = GRect(bounds.size.w / 5, 127, bounds.size.w * 3 / 5, 16);
+  GRect level_frame = GRect(bounds.size.w / 5, 102 + top_offset, bounds.size.w * 3 / 5, 14);
   s_level_layer = layer_create(level_frame);
   layer_set_update_proc(s_level_layer, prv_level_layer_update_proc);
   layer_add_child(window_layer, s_level_layer);
 
-  // History strip under the bar. Tall screens keep the version label below it; on 168 px screens
-  // and the round ones there's no room for both, so the strip takes its place while connected.
-  int history_h = bounds.size.h - 24 - HISTORY_TOP - 2;
-  s_history_hides_version = history_h < 14;
-  if (s_history_hides_version) {
-    history_h = bounds.size.h - HISTORY_TOP - 4;
-  }
-  if (history_h > 28) {
-    history_h = 28;
-  }
+  int history_top = 118 + top_offset;
+  int history_h = bounds.size.h >= 200 ? 28 : 20;
 #if defined(PBL_ROUND)
   // Keep the strip's bottom corners inside the circle.
   int radius = bounds.size.w / 2;
   int dx = radius - level_frame.origin.x;
   while (history_h > 6) {
-    int dy = HISTORY_TOP + history_h - bounds.size.h / 2;
+    int dy = history_top + history_h - bounds.size.h / 2;
     if (dx * dx + dy * dy <= (radius - 4) * (radius - 4)) {
       break;
     }
@@ -722,28 +938,33 @@ static void prv_window_load(Window *window) {
   if (s_history_columns > HISTORY_MAX_COLUMNS) {
     s_history_columns = HISTORY_MAX_COLUMNS;
   }
-  s_history_layer = layer_create(GRect(level_frame.origin.x, HISTORY_TOP, s_history_columns, history_h));
+  s_history_layer = layer_create(GRect(level_frame.origin.x, history_top, s_history_columns, history_h));
   layer_set_update_proc(s_history_layer, prv_history_layer_update_proc);
   layer_add_child(window_layer, s_history_layer);
 
-  s_status_layer = text_layer_create(GRect(0, 64, bounds.size.w, 30));
+  int clock_top = history_top + history_h + (bounds.size.h >= 200 ? 6 : 5);
+  s_clock_layer = layer_create(GRect(0, clock_top, bounds.size.w, CLOCK_CARD_H));
+  layer_set_update_proc(s_clock_layer, prv_clock_layer_update_proc);
+  layer_add_child(window_layer, s_clock_layer);
+
+  time_t now = time(NULL);
+  struct tm *tick_time = localtime(&now);
+  s_clock_initialized = false;
+  if (tick_time) {
+    prv_update_clock(tick_time, false);
+  }
+
+  s_status_layer = text_layer_create(GRect(0, 44 + top_offset, bounds.size.w, 28));
   text_layer_set_text_alignment(s_status_layer, GTextAlignmentCenter);
   text_layer_set_font(s_status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   text_layer_set_background_color(s_status_layer, GColorClear);
   layer_add_child(window_layer, text_layer_get_layer(s_status_layer));
 
-  s_timer_layer = text_layer_create(GRect(0, 92, bounds.size.w, 34));
+  s_timer_layer = text_layer_create(GRect(0, 68 + top_offset, bounds.size.w, 32));
   text_layer_set_text_alignment(s_timer_layer, GTextAlignmentCenter);
   text_layer_set_font(s_timer_layer, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD));
   text_layer_set_background_color(s_timer_layer, GColorClear);
   layer_add_child(window_layer, text_layer_get_layer(s_timer_layer));
-
-  s_version_layer = text_layer_create(GRect(0, bounds.size.h - 24, bounds.size.w, 22));
-  text_layer_set_text_alignment(s_version_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_version_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
-  text_layer_set_background_color(s_version_layer, GColorClear);
-  text_layer_set_text(s_version_layer, "v" APP_VERSION);
-  layer_add_child(window_layer, text_layer_get_layer(s_version_layer));
 
   // Overlaid on top; hidden unless a phone check is reporting success/failure.
   s_banner_layer = text_layer_create(GRect(0, 0, bounds.size.w, 46));
@@ -764,18 +985,67 @@ static void prv_window_load(Window *window) {
   prv_set_touch_enabled(true);
 }
 
+#if !PBL_PLATFORM_APLITE
+// Launcher subtitle ("glance") showing the state the app was left in. Apps can only set it while
+// running, so it's written on exit; a recording started or stopped from the phone afterwards
+// isn't reflected until the app is opened again. While recording, the firmware keeps the
+// elapsed time ticking from the template on its own.
+static void prv_glance_reload_callback(AppGlanceReloadSession *session, size_t limit, void *context) {
+  if (limit < 1) {
+    return;
+  }
+  char subtitle[64];
+  switch (s_state) {
+    case APP_STATE_STARTING:
+    case APP_STATE_RECORDING:
+    case APP_STATE_PAUSING:
+      snprintf(subtitle, sizeof(subtitle), "Recording {time_since(%ld)|format('%%T')}",
+               (long)s_recording_start_time);
+      break;
+    case APP_STATE_PAUSED:
+    case APP_STATE_RESUMING: {
+      int elapsed = (int)((s_pause_started_at ? s_pause_started_at : time(NULL)) - s_recording_start_time);
+      if (elapsed < 0) {
+        elapsed = 0;
+      }
+      snprintf(subtitle, sizeof(subtitle), "Paused %02d:%02d", elapsed / 60, elapsed % 60);
+      break;
+    }
+    default:
+      snprintf(subtitle, sizeof(subtitle), "Idle");
+      break;
+  }
+  AppGlanceSlice slice = {
+    .expiration_time = APP_GLANCE_SLICE_NO_EXPIRATION,
+    .layout.icon = APP_GLANCE_SLICE_DEFAULT_ICON,
+    .layout.subtitle_template_string = subtitle,
+  };
+  AppGlanceResult result = app_glance_add_slice(session, slice);
+  if (result != APP_GLANCE_RESULT_SUCCESS) {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "app_glance_add_slice() returned %d", result);
+  }
+}
+#endif
+
 static void prv_window_unload(Window *window) {
+#if !PBL_PLATFORM_APLITE
+  app_glance_reload(prv_glance_reload_callback, NULL);
+#endif
   touch_service_unsubscribe();
   prv_cancel_phone_check();
   prv_cancel_banner_hide();
+  if (s_clock_flip_timer) {
+    app_timer_cancel(s_clock_flip_timer);
+    s_clock_flip_timer = NULL;
+  }
   text_layer_destroy(s_status_layer);
   text_layer_destroy(s_timer_layer);
-  text_layer_destroy(s_version_layer);
   text_layer_destroy(s_banner_layer);
   layer_destroy(s_icon_layer);
   prv_clear_levels();
   layer_destroy(s_level_layer);
   layer_destroy(s_history_layer);
+  layer_destroy(s_clock_layer);
 }
 
 static void prv_init(void) {
