@@ -1,0 +1,1 @@
+Watch level meter is smoother, with a peak marker and a level history strip. Widget fixes: the stop button no longer disappears while recording, and the subtext is no longer cut off.
