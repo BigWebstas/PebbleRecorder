@@ -38,6 +38,21 @@ typedef enum {
 // Silence auto-stop threshold (1000 / 32768 ~= -30.3 dBFS) on the 0..100 (-60..0 dBFS) level bar.
 #define SILENCE_THRESHOLD_LEVEL 49
 
+// The phone samples the mic every 100 ms and sends the samples in batches of four (MESSAGE_KEY_LEVELS)
+// every 400 ms. They're played back one per LEVEL_SAMPLE_MS so the bar moves smoothly.
+#define LEVEL_SAMPLE_MS 100
+#define LEVEL_QUEUE_SIZE 16
+// If messages bunch up, drop the oldest samples so the meter doesn't lag behind the room.
+#define LEVEL_QUEUE_MAX_BACKLOG 8
+// One history column per batch (400 ms), drawn from that batch's peak.
+#define LEVEL_SAMPLES_PER_COLUMN 4
+#define HISTORY_MAX_COLUMNS 200
+// Peak hold: the marker stays at the loudest recent sample for 1.5 s, then falls back.
+#define PEAK_HOLD_SAMPLES 15
+#define PEAK_DECAY_PER_SAMPLE 4
+// Top of the history strip, just under the level bar.
+#define HISTORY_TOP 146
+
 // Values received phone -> watch via MESSAGE_KEY_STATUS.
 typedef enum {
   STATUS_IDLE = 0,
@@ -65,7 +80,21 @@ static TextLayer *s_version_layer;
 static TextLayer *s_banner_layer;
 static Layer *s_icon_layer;
 static Layer *s_level_layer;
-static int s_level; // mic level 0..100 streamed from the phone while recording
+static Layer *s_history_layer;
+static int s_level; // mic level 0..100 streamed from the phone whenever the app is open
+static int s_peak;  // peak-hold marker on the level bar, 0..100
+static int s_peak_hold; // samples left before the peak marker starts to fall
+static uint8_t s_level_queue[LEVEL_QUEUE_SIZE]; // samples waiting to be played, ring buffer
+static int s_level_queue_head;
+static int s_level_queue_count;
+static AppTimer *s_level_timer;
+static uint8_t s_history[HISTORY_MAX_COLUMNS]; // per-column peaks, ring buffer, oldest at s_history_next
+static int s_history_next;
+static int s_history_len;
+static int s_history_columns; // strip width in px, one column per px
+static int s_column_peak;
+static int s_column_samples;
+static bool s_history_hides_version; // small screens: the strip takes the version label's place
 static AppState s_state = APP_STATE_NO_PHONE;
 static time_t s_recording_start_time;
 static time_t s_pause_started_at; // 0 when not currently paused
@@ -124,6 +153,15 @@ static void prv_level_layer_update_proc(Layer *layer, GContext *ctx) {
   int fill = inner_w * s_level / 100;
   graphics_fill_rect(ctx, GRect(2, bar.origin.y + 2, fill, bar.size.h - 4), 0, GCornerNone);
 
+  // Peak hold: a 2 px marker at the loudest recent level, once the live level has dropped below it.
+  int peak_x = inner_w * s_peak / 100;
+  if (peak_x > fill + 1) {
+    if (peak_x > inner_w - 2) {
+      peak_x = inner_w - 2;
+    }
+    graphics_fill_rect(ctx, GRect(2 + peak_x, bar.origin.y + 2, 2, bar.size.h - 4), 0, GCornerNone);
+  }
+
   int threshold_x = 2 + inner_w * SILENCE_THRESHOLD_LEVEL / 100;
   graphics_draw_line(ctx, GPoint(threshold_x, 0), GPoint(threshold_x, bounds.size.h - 1));
   if (fill >= threshold_x - 1) {
@@ -133,6 +171,112 @@ static void prv_level_layer_update_proc(Layer *layer, GContext *ctx) {
     graphics_context_set_stroke_color(ctx, bg);
     graphics_draw_line(ctx, GPoint(threshold_x, bar.origin.y + 2),
                        GPoint(threshold_x, bar.origin.y + bar.size.h - 3));
+  }
+}
+
+// Level history: one column per 400 ms batch, newest on the right, with a dotted line at the
+// silence auto-stop threshold, so a quiet stretch heading for an auto-stop is easy to spot.
+static void prv_history_layer_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  int bottom = bounds.size.h - 1;
+  int max_h = bounds.size.h - 1;
+  graphics_context_set_stroke_color(ctx, s_icon_color);
+  graphics_draw_line(ctx, GPoint(0, bottom), GPoint(bounds.size.w - 1, bottom));
+
+  int start = s_history_columns - s_history_len;
+  for (int i = 0; i < s_history_len; i++) {
+    int level = s_history[(s_history_next - s_history_len + i + HISTORY_MAX_COLUMNS) % HISTORY_MAX_COLUMNS];
+    int h = max_h * level / 100;
+    if (h > 0) {
+      graphics_draw_line(ctx, GPoint(start + i, bottom - h), GPoint(start + i, bottom));
+    }
+  }
+
+  int threshold_y = bottom - max_h * SILENCE_THRESHOLD_LEVEL / 100;
+  for (int x = 0; x < bounds.size.w; x += 3) {
+    graphics_draw_pixel(ctx, GPoint(x, threshold_y));
+  }
+}
+
+static void prv_clear_levels(void) {
+  s_level = 0;
+  s_peak = 0;
+  s_peak_hold = 0;
+  s_level_queue_count = 0;
+  s_column_peak = 0;
+  s_column_samples = 0;
+  s_history_len = 0;
+  if (s_level_timer) {
+    app_timer_cancel(s_level_timer);
+    s_level_timer = NULL;
+  }
+}
+
+static void prv_play_level(int level) {
+  if (level < 0) {
+    level = 0;
+  } else if (level > 100) {
+    level = 100;
+  }
+  s_level = level;
+
+  if (level >= s_peak) {
+    s_peak = level;
+    s_peak_hold = PEAK_HOLD_SAMPLES;
+  } else if (s_peak_hold > 0) {
+    s_peak_hold--;
+  } else {
+    s_peak -= PEAK_DECAY_PER_SAMPLE;
+    if (s_peak < level) {
+      s_peak = level;
+    }
+  }
+  layer_mark_dirty(s_level_layer);
+
+  if (level > s_column_peak) {
+    s_column_peak = level;
+  }
+  if (++s_column_samples >= LEVEL_SAMPLES_PER_COLUMN) {
+    s_history[s_history_next] = s_column_peak;
+    s_history_next = (s_history_next + 1) % HISTORY_MAX_COLUMNS;
+    if (s_history_len < s_history_columns) {
+      s_history_len++;
+    }
+    s_column_peak = 0;
+    s_column_samples = 0;
+    layer_mark_dirty(s_history_layer);
+  }
+}
+
+// Plays the next queued sample, then schedules the one after it.
+static void prv_level_timer_callback(void *data) {
+  s_level_timer = NULL;
+  if (s_level_queue_count == 0) {
+    return;
+  }
+  prv_play_level(s_level_queue[s_level_queue_head]);
+  s_level_queue_head = (s_level_queue_head + 1) % LEVEL_QUEUE_SIZE;
+  s_level_queue_count--;
+  if (s_level_queue_count > 0) {
+    s_level_timer = app_timer_register(LEVEL_SAMPLE_MS, prv_level_timer_callback, NULL);
+  }
+}
+
+static void prv_queue_levels(const uint8_t *levels, int count) {
+  for (int i = 0; i < count; i++) {
+    if (s_level_queue_count == LEVEL_QUEUE_SIZE) {
+      s_level_queue_head = (s_level_queue_head + 1) % LEVEL_QUEUE_SIZE;
+      s_level_queue_count--;
+    }
+    s_level_queue[(s_level_queue_head + s_level_queue_count) % LEVEL_QUEUE_SIZE] = levels[i];
+    s_level_queue_count++;
+  }
+  while (s_level_queue_count > LEVEL_QUEUE_MAX_BACKLOG) {
+    s_level_queue_head = (s_level_queue_head + 1) % LEVEL_QUEUE_SIZE;
+    s_level_queue_count--;
+  }
+  if (!s_level_timer) {
+    prv_level_timer_callback(NULL);
   }
 }
 
@@ -187,9 +331,15 @@ static void prv_set_state(AppState state) {
   layer_mark_dirty(s_icon_layer);
 
   // The phone streams the mic level whenever the app is open and connected, recording or not.
-  s_level = 0;
-  layer_set_hidden(s_level_layer, state == APP_STATE_NO_PHONE || state == APP_STATE_ERROR);
+  bool show_levels = state != APP_STATE_NO_PHONE && state != APP_STATE_ERROR;
+  if (!show_levels) {
+    prv_clear_levels();
+  }
+  layer_set_hidden(s_level_layer, !show_levels);
+  layer_set_hidden(s_history_layer, !show_levels);
+  layer_set_hidden(text_layer_get_layer(s_version_layer), show_levels && s_history_hides_version);
   layer_mark_dirty(s_level_layer);
+  layer_mark_dirty(s_history_layer);
 
   tick_timer_service_unsubscribe();
   switch (state) {
@@ -451,10 +601,17 @@ static void prv_set_touch_enabled(bool enabled) {
 }
 
 static void prv_inbox_received_handler(DictionaryIterator *iterator, void *context) {
+  Tuple *levels_tuple = dict_find(iterator, MESSAGE_KEY_LEVELS);
+  if (levels_tuple) {
+    prv_queue_levels(levels_tuple->value->data, levels_tuple->length);
+    return;
+  }
   Tuple *level_tuple = dict_find(iterator, MESSAGE_KEY_LEVEL);
   if (level_tuple) {
-    s_level = level_tuple->value->int32;
-    layer_mark_dirty(s_level_layer);
+    // A phone app from before LEVELS sends one level per 400 ms: hold it for the whole batch.
+    uint8_t level = level_tuple->value->int32;
+    uint8_t batch[LEVEL_SAMPLES_PER_COLUMN] = {level, level, level, level};
+    prv_queue_levels(batch, LEVEL_SAMPLES_PER_COLUMN);
     return;
   }
 
@@ -534,9 +691,40 @@ static void prv_window_load(Window *window) {
   layer_set_update_proc(s_icon_layer, prv_icon_layer_update_proc);
   layer_add_child(window_layer, s_icon_layer);
 
-  s_level_layer = layer_create(GRect(bounds.size.w / 5, 127, bounds.size.w * 3 / 5, 16));
+  GRect level_frame = GRect(bounds.size.w / 5, 127, bounds.size.w * 3 / 5, 16);
+  s_level_layer = layer_create(level_frame);
   layer_set_update_proc(s_level_layer, prv_level_layer_update_proc);
   layer_add_child(window_layer, s_level_layer);
+
+  // History strip under the bar. Tall screens keep the version label below it; on 168 px screens
+  // and the round ones there's no room for both, so the strip takes its place while connected.
+  int history_h = bounds.size.h - 24 - HISTORY_TOP - 2;
+  s_history_hides_version = history_h < 14;
+  if (s_history_hides_version) {
+    history_h = bounds.size.h - HISTORY_TOP - 4;
+  }
+  if (history_h > 28) {
+    history_h = 28;
+  }
+#if defined(PBL_ROUND)
+  // Keep the strip's bottom corners inside the circle.
+  int radius = bounds.size.w / 2;
+  int dx = radius - level_frame.origin.x;
+  while (history_h > 6) {
+    int dy = HISTORY_TOP + history_h - bounds.size.h / 2;
+    if (dx * dx + dy * dy <= (radius - 4) * (radius - 4)) {
+      break;
+    }
+    history_h--;
+  }
+#endif
+  s_history_columns = level_frame.size.w;
+  if (s_history_columns > HISTORY_MAX_COLUMNS) {
+    s_history_columns = HISTORY_MAX_COLUMNS;
+  }
+  s_history_layer = layer_create(GRect(level_frame.origin.x, HISTORY_TOP, s_history_columns, history_h));
+  layer_set_update_proc(s_history_layer, prv_history_layer_update_proc);
+  layer_add_child(window_layer, s_history_layer);
 
   s_status_layer = text_layer_create(GRect(0, 64, bounds.size.w, 30));
   text_layer_set_text_alignment(s_status_layer, GTextAlignmentCenter);
@@ -585,7 +773,9 @@ static void prv_window_unload(Window *window) {
   text_layer_destroy(s_version_layer);
   text_layer_destroy(s_banner_layer);
   layer_destroy(s_icon_layer);
+  prv_clear_levels();
   layer_destroy(s_level_layer);
+  layer_destroy(s_history_layer);
 }
 
 static void prv_init(void) {
