@@ -13,10 +13,13 @@
     android:background="@color/widget_background"
     android:gravity="center"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="4dp">
 
+    <!-- The row fills the widget width and the status label takes what's left (ellipsized), so
+         "Recording" + timer can never push the stop button off a narrow widget. -->
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal">
@@ -31,8 +34,11 @@
 
         <TextView
             android:id="@+id/widget_status_text"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
             android:text="@string/widget_status_idle"
             android:textColor="@color/widget_text"
             android:textSize="14sp" />
@@ -51,15 +57,15 @@
             android:id="@+id/widget_record_divider"
             android:layout_width="1dp"
             android:layout_height="24dp"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="8dp"
             android:background="#33FFFFFF"
             android:importantForAccessibility="no" />
 
         <ImageButton
             android:id="@+id/widget_record_button"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:layout_marginStart="12dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
             android:background="@android:color/transparent"
             android:contentDescription="@string/record_button"
             android:padding="4dp"
@@ -72,6 +78,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:alpha="0.6"
+        android:includeFontPadding="false"
         android:text="@string/widget_subtext"
         android:textColor="@color/widget_text"
         android:textSize="11sp" />

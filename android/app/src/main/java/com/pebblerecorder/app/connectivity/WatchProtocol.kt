@@ -5,7 +5,7 @@ import java.util.UUID
 /**
  * Mirrors the watch side of the protocol in watch/src/c/watch.c and the message key IDs
  * that pebble-tool auto-assigns from watch/package.json's `messageKeys` list (COMMAND=10000,
- * STATUS=10001, ELAPSED=10002, LEVEL=10003, TOUCH_ENABLED=10004, NOTICE=10005 as of this writing — re-check watch/build/js/message_keys.json if that list changes).
+ * STATUS=10001, ELAPSED=10002, LEVEL=10003, TOUCH_ENABLED=10004, NOTICE=10005, LEVELS=10006 as of this writing — re-check watch/build/js/message_keys.json if that list changes).
  */
 object WatchProtocol {
     val APP_UUID: UUID = UUID.fromString("252148a0-e241-4bc2-a9d5-07004df158e9")
@@ -16,12 +16,15 @@ object WatchProtocol {
     /** Seconds the current recording has run, pauses excluded; sent with RECORDING/PAUSED. */
     const val KEY_ELAPSED: UInt = 10002u
 
-    /** Live mic level 0..100 (dB scale), streamed to the watch while recording. */
+    /** Peak mic level 0..100 (dB scale) of the latest batch; kept for watch apps older than [KEY_LEVELS]. */
     const val KEY_LEVEL: UInt = 10003u
     const val KEY_TOUCH_ENABLED: UInt = 10004u
 
     /** A one-off message for the watch to flash: one of the NOTICE_* values. */
     const val KEY_NOTICE: UInt = 10005u
+
+    /** The latest batch of mic levels, one byte (0..100) per [WatchLevels.SAMPLE_MS] sample, oldest first. */
+    const val KEY_LEVELS: UInt = 10006u
 
     const val COMMAND_STOP = 0
     const val COMMAND_START = 1

@@ -20,6 +20,8 @@ to a folder you choose — no need to touch your phone.
 **Recording**
 - Record, pause and stop from the phone too: status card, bookmark button, Quick Settings tile,
   home-screen widget with a record button and timer, and Pause/Stop on the notification.
+
+  <img src="docs/screenshots/android-widget.png" alt="Home-screen widget, idle, with its record button" width="180">
 - Live spectrogram (Android 10+) with a mic level bar. A marker on the bar shows the silence
   threshold used by auto-stop.
 - Auto-stop after a set length or after silence. Optional Do Not Disturb while recording.
@@ -35,6 +37,8 @@ to a folder you choose — no need to touch your phone.
 **Recent recordings**
 - Play, share, retry transcription, rename speakers, search, and view the full transcript.
 - A storage bar shows how much space your recordings use and how much is left on the device.
+
+  <img src="docs/screenshots/android-storage-bar.png" alt="Storage bar under the recordings list" width="480">
 
 **Everything else**
 - Optional local webhook (e.g. Pebble Index) to start, stop or toggle recording. Audio sent with a

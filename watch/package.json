@@ -28,7 +28,8 @@
       "ELAPSED",
       "LEVEL",
       "TOUCH_ENABLED",
-      "NOTICE"
+      "NOTICE",
+      "LEVELS"
     ],
     "companionApp": {
       "android": {
