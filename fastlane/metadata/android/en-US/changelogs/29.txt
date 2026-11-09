@@ -1,0 +1,1 @@
+The watch launcher now shows the recording status under PebbleRecorder: Recording with a live timer, Paused, or Idle.
