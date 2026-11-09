@@ -47,7 +47,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
-import kotlin.math.log10
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -62,7 +61,6 @@ private const val ACTIVE_CHANNEL_ID = "recording_active"
 private const val NOTIFICATION_ID = 1
 private const val AUTO_STOP_NOTIFICATION_ID = 2
 private const val AUTO_DELETE_NOTIFICATION_ID = 3
-private const val LEVEL_INTERVAL_MS = 400L
 private const val ACTION_COMMAND = "com.pebblerecorder.app.action.COMMAND"
 private const val EXTRA_COMMAND = "command"
 private const val ACTION_RETRY_TRANSCRIPTION = "com.pebblerecorder.app.action.RETRY_TRANSCRIPTION"
@@ -405,30 +403,44 @@ class PebbleListenerService : BasePebbleListenerService() {
      */
     private fun startLevelStream() {
         levelJob = coroutineScope.launch {
+            // Samples are taken every 100 ms but everything else - progress, auto-stop, the message
+            // to the watch - still happens once per batch of four (400 ms), on the batch's peak.
+            val batch = IntArray(WatchLevels.SAMPLES_PER_SEND)
+            var count = 0
+            var heard = false // whether any sample in the batch came from a mic
             while (isActive) {
-                delay(LEVEL_INTERVAL_MS)
+                delay(WatchLevels.SAMPLE_MS)
                 val watch = activeWatch
+                val recording = audio.isActive && !audio.isPaused
+                if (watch == null || recording) stopMonitor(demote = watch == null)
+                // The recorder's peak is read every sample while recording - the watch's level meter
+                // and the silence auto-stop both need it, and each read resets it.
+                val amplitude = when {
+                    recording -> audio.maxAmplitude()
+                    watch != null -> monitorPeak()
+                    else -> null
+                }
+                batch[count++] = amplitude ?: 0
+                if (amplitude != null) heard = true
+                if (count < batch.size) continue
+                count = 0
+                val batchHeard = heard
+                heard = false
+
                 if (audio.isActive) {
                     RecordingStatus.updateProgress(audio.elapsedSeconds(), audio.sizeBytes())
                 }
-                val recording = audio.isActive && !audio.isPaused
-                if (watch == null || recording) stopMonitor(demote = watch == null)
-                // The recorder's peak is read every tick while recording - the watch's level meter
-                // and the silence auto-stop both need it, and each read resets it.
-                val recordingPeak = if (recording) audio.maxAmplitude() else null
-                if (recordingPeak != null) checkAutoStop(recordingPeak)
+                val peak = batch.max()
+                if (recording) checkAutoStop(peak)
                 else if (audio.isActive) autoStop.reset() // paused
-                val amplitude = when {
-                    watch == null -> null
-                    recording -> recordingPeak
-                    else -> monitorPeak()
-                } ?: continue
-                // Map -60..0 dBFS onto 0..100 - quiet rooms read near zero, speech mid-to-high.
-                val db = 20 * log10(amplitude.coerceAtLeast(1) / 32768.0)
-                val level = ((db + 60) / 60 * 100).toInt().coerceIn(0, 100)
+                if (watch == null || !batchHeard) continue
+                // LEVEL (the batch peak) keeps watch apps from before LEVELS working.
                 sender.sendDataToPebble(
                     WatchProtocol.APP_UUID,
-                    mapOf(WatchProtocol.KEY_LEVEL to PebbleDictionaryItem.Int32(level)),
+                    mapOf(
+                        WatchProtocol.KEY_LEVEL to PebbleDictionaryItem.Int32(WatchLevels.toLevel(peak)),
+                        WatchProtocol.KEY_LEVELS to PebbleDictionaryItem.Bytes(WatchLevels.toBytes(batch)),
+                    ),
                     watches = listOfNotNull(watch),
                 )
             }
