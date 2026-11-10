@@ -20,8 +20,8 @@ android {
         applicationId = "com.pebblerecorder.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 29
-        versionName = "1.5.2"
+        versionCode = 30
+        versionName = "1.5.3"
 
         // whisper.cpp is only worth shipping for 64-bit ARM (phones) and x86_64 (emulator).
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
