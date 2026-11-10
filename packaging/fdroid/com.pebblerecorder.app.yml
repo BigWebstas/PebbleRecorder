@@ -50,9 +50,9 @@ Builds:
   # `git rev-parse vX.Y.Z^{commit}` (note the `^{commit}` dereference - `git tag -a` makes an
   # annotated tag object, and a bare `git rev-parse vX.Y.Z` returns *that* object's hash, not the
   # commit it points to).
-  - versionName: 1.5.2
-    versionCode: 29
-    commit: 99156d9cb1bf85271579deb104bf9c5a7a9a3c6d
+  - versionName: 1.5.3
+    versionCode: 30
+    commit: 29591d10e04921a1a8dca253dc914d1f03b7631b
     # subdir is the directory where the `build` dir is generated, i.e. the "app" Gradle module -
     # android/app/build/... - so fdroidserver's default flavor scan finds
     # <subdir>/build/outputs/apk/fdroid/release with no explicit `output:` needed. Gradle still
@@ -85,5 +85,5 @@ AllowedAPKSigningKeys: 3c7b738a4be737b5ed376eb686f9d507d4779d715e6d73a0306e2d7b7
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.5.2
-CurrentVersionCode: 29
+CurrentVersion: 1.5.3
+CurrentVersionCode: 30
