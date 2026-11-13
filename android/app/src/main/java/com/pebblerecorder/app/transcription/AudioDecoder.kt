@@ -17,6 +17,11 @@ private const val TIMEOUT_US = 10_000L
  */
 internal class Pcm(val data: ShortArray, val size: Int)
 
+/** Where decoded 16 kHz mono samples go. */
+internal fun interface SampleSink {
+    fun add(value: Short)
+}
+
 /**
  * Decodes any recording the app can make or import into the 16 kHz mono samples whisper expects.
  * Kept as 16-bit shorts, not floats: an hour is 115 MB rather than 230 MB, and the app's Java heap
@@ -25,19 +30,33 @@ internal class Pcm(val data: ShortArray, val size: Int)
 internal object AudioDecoder {
 
     fun decode(file: File): Pcm {
+        var buffer: SampleBuffer? = null
+        decodeStream({ it.setDataSource(file.path) }, file.name) { durationUs ->
+            SampleBuffer(estimatedSamples(durationUs)).also { buffer = it }
+        }
+        return buffer!!.let { Pcm(it.data, it.size) }
+    }
+
+    /**
+     * Decodes the recording that [setSource] points the extractor at, handing 16 kHz mono samples
+     * to the sink [sinkFor] makes (given the duration in microseconds, 0 if unknown) as they come,
+     * so a long recording never has to be in memory all at once.
+     */
+    fun decodeStream(setSource: (MediaExtractor) -> Unit, name: String, sinkFor: (Long) -> SampleSink) {
         val extractor = MediaExtractor()
         try {
-            extractor.setDataSource(file.path)
+            setSource(extractor)
             val track = (0 until extractor.trackCount).firstOrNull {
                 extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
-            } ?: throw IOException("No audio track in ${file.name}")
+            } ?: throw IOException("No audio track in $name")
             extractor.selectTrack(track)
             val format = extractor.getTrackFormat(track)
             val codec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
             try {
                 codec.configure(format, null, null, 0)
                 codec.start()
-                return run(extractor, codec, format)
+                val durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else 0L
+                run(extractor, codec, sinkFor(durationUs))
             } finally {
                 codec.release()
             }
@@ -46,9 +65,7 @@ internal object AudioDecoder {
         }
     }
 
-    private fun run(extractor: MediaExtractor, codec: MediaCodec, format: MediaFormat): Pcm {
-        val durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else 0L
-        val out = SampleBuffer(estimatedSamples(durationUs))
+    private fun run(extractor: MediaExtractor, codec: MediaCodec, out: SampleSink) {
         var resampler: Resampler? = null
         var channels = 1
         val info = MediaCodec.BufferInfo()
@@ -89,7 +106,6 @@ internal object AudioDecoder {
                 }
             }
         }
-        return Pcm(out.data, out.size)
     }
 
     /** Samples for a recording of [durationUs], plus a little slack for the codec's padding. */
@@ -102,7 +118,7 @@ internal object AudioDecoder {
         private var pos = 0.0
         private var prev = 0f
 
-        fun add(sample: Float, out: SampleBuffer) {
+        fun add(sample: Float, out: SampleSink) {
             while (pos < 1.0) {
                 out.add((prev + (sample - prev) * pos.toFloat()).roundToInt().coerceIn(-32768, 32767).toShort())
                 pos += step
@@ -117,13 +133,13 @@ internal object AudioDecoder {
      * grows by a fixed step, never by doubling: doubling a long recording's array needs the old and
      * new copies in memory at once, which is what ran the app out of heap on a 30+ minute recording.
      */
-    internal class SampleBuffer(initialCapacity: Int) {
+    internal class SampleBuffer(initialCapacity: Int) : SampleSink {
         var data = ShortArray(initialCapacity)
             private set
         var size = 0
             private set
 
-        fun add(value: Short) {
+        override fun add(value: Short) {
             if (size == data.size) data = data.copyOf(data.size + GROW_STEP)
             data[size++] = value
         }
