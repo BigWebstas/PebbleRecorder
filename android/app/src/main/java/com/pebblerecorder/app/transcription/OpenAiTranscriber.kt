@@ -24,7 +24,7 @@ object OpenAiTranscriber {
 
     /** Transcribes [audioUri], retrying transient failures (see [withRetries]). */
     suspend fun transcribe(context: Context, audioUri: Uri): Result<String> =
-        withRetries(TAG) { transcribeOnce(context, audioUri) }
+        withRetries(TAG) { TranscriptionStatus.sending(1, 1); transcribeOnce(context, audioUri) }
 
     private suspend fun transcribeOnce(context: Context, audioUri: Uri): Result<String> =
         withContext(Dispatchers.IO) {

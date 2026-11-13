@@ -24,15 +24,27 @@ internal class AudioChunk(val file: File, val startSec: Int, val endSec: Int)
  */
 internal object AudioTranscoder {
 
-    fun split(context: Context, source: Uri, outDir: File): List<AudioChunk> {
+    /** [onProgress] gets 0-100, how far through the recording's audio the re-encoding has got. */
+    fun split(context: Context, source: Uri, outDir: File, onProgress: (Int) -> Unit = {}): List<AudioChunk> {
         val chunks = mutableListOf<AudioChunk>()
-        val sink = ChunkSink(outDir, chunks)
-        AudioDecoder.decodeStream({ it.setDataSource(context, source, null) }, source.lastPathSegment ?: "recording") { sink }
-        sink.finish()
+        var sink: ChunkSink? = null
+        AudioDecoder.decodeStream({ it.setDataSource(context, source, null) }, source.lastPathSegment ?: "recording") { durationUs ->
+            ChunkSink(outDir, chunks, durationUs, onProgress).also { sink = it }
+        }
+        sink?.finish()
         return chunks
     }
 
-    private class ChunkSink(private val dir: File, private val out: MutableList<AudioChunk>) : SampleSink {
+    private class ChunkSink(
+        private val dir: File,
+        private val out: MutableList<AudioChunk>,
+        durationUs: Long,
+        private val onProgress: (Int) -> Unit,
+    ) : SampleSink {
+        // Zero when the duration is unknown, which leaves the bar where it is.
+        private val totalSamples = durationUs * RATE / 1_000_000L
+        private var lastPercent = -1
+
         private val target = ChunkPlanning.CHUNK_SECONDS * RATE
         private val buffer = ShortArray(target + 1)
         private var size = 0
@@ -40,6 +52,13 @@ internal object AudioTranscoder {
 
         override fun add(value: Short) {
             buffer[size++] = value
+            if (totalSamples > 0 && (startSample + size) % RATE == 0L) {
+                val percent = ((startSample + size) * 100 / totalSamples).toInt().coerceIn(0, 99)
+                if (percent != lastPercent) {
+                    lastPercent = percent
+                    onProgress(percent)
+                }
+            }
             if (size >= target) flush(ChunkPlanning.quietestCut(buffer, size))
         }
 

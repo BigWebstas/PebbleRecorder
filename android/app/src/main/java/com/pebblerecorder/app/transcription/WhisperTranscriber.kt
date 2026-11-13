@@ -52,7 +52,7 @@ object WhisperTranscriber {
                             WhisperLib.free(handle)
                         }
                     } finally {
-                        TranscriptionStatus.end()
+                        TranscriptionStatus.end(audio.name)
                     }
                 }
             }

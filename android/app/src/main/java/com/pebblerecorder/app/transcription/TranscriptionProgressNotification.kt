@@ -20,7 +20,7 @@ private const val PROGRESS_CHANNEL_ID = "transcription_progress"
 private const val PROGRESS_NOTIFICATION_ID = 90
 
 /**
- * A notification with a progress bar while the on-device engine transcribes. It's on its own
+ * A notification with a progress bar while a recording is transcribed - on-device, or re-encoded and sent to a cloud engine. It's on its own
  * channel at default importance, so it makes a sound when it appears (the "Transcription"
  * channel's notices are all silent); the percent updates after that don't re-alert
  * ([NotificationCompat.Builder.setOnlyAlertOnce]), or it would chime on every step. It goes away
@@ -55,12 +55,12 @@ internal class TranscriptionProgressNotification(private val context: Context) {
         val percent = active.percent
         val notification = NotificationCompat.Builder(context, PROGRESS_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mic)
-            .setContentTitle(context.getString(R.string.transcription_progress_title))
+            .setContentTitle(active.title(context))
             .setContentText(
                 if (percent == null) {
-                    context.getString(R.string.transcription_progress_preparing)
+                    active.label(context)
                 } else {
-                    context.getString(R.string.transcription_progress_percent, percent)
+                    "${active.label(context)} · ${context.getString(R.string.transcription_progress_percent, percent)}"
                 },
             )
             .setProgress(100, percent ?: 0, percent == null)

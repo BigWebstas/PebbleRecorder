@@ -406,6 +406,10 @@ class RecordingsList(
                 .setTitle("${whenText(entry.recordedAtMs)} · ${clock(entry.durationSec)}")
                 .setView(view)
                 .show()
+            view.findViewById<View>(R.id.transcript_summarize_button).setOnClickListener {
+                dialog.dismiss()
+                PebbleListenerService.retrySummary(activity, entry.name)
+            }
             view.findViewById<View>(R.id.transcript_share_button).setOnClickListener {
                 dialog.dismiss()
                 shareTranscript(entry)

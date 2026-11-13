@@ -14,6 +14,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.pebblerecorder.app.R
@@ -199,8 +200,8 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
      * The summary to put above the transcript, or null if summaries are off or the provider
      * failed. The outcome is recorded on the list entry so a failure shows on the row.
      */
-    private suspend fun summaryFor(name: String, transcript: String): String? {
-        if (!TranscriptionPrefs.summaryEnabled(context)) {
+    private suspend fun summaryFor(name: String, transcript: String, force: Boolean = false): String? {
+        if (!force && !TranscriptionPrefs.summaryEnabled(context)) {
             RecordingLog.update(context, name) { it.copy(summaryError = null) }
             return null
         }
@@ -230,12 +231,24 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
             }
             RecordingLog.update(context, name) { it.copy(summaryError = null) }
             val parts = splitTranscriptMarkdown(saved)
-            val summary = summaryFor(name, parts.transcript) ?: return@launch
+            toast(context.getString(R.string.summarizing_toast))
+            // Asked for by hand, so it runs even with summaries off for new recordings.
+            val summary = summaryFor(name, parts.transcript, force = true)
+            if (summary == null) {
+                val why = RecordingLog.entries.value.firstOrNull { it.name == name }?.summaryError ?: ""
+                toast(context.getString(R.string.summary_failed_toast, why))
+                return@launch
+            }
             val markdown = TranscriptParts(parts.head, summary, parts.transcript, parts.bookmarks).markdown()
             if (uri != null) TranscriptFiles.write(context, uri, markdown)
             RecordingBackup.keepTranscript(context, name, markdown)
             RecordingLog.update(context, name) { it.copy(text = markdown.take(MAX_TEXT)) }
+            toast(context.getString(R.string.summary_added_toast))
         }
+    }
+
+    private suspend fun toast(message: String) = withContext(Dispatchers.Main) {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
     private suspend fun transcribe(
@@ -245,10 +258,20 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
         bookmarks: List<Int> = emptyList(),
     ): Result<String> =
         when (engine) {
-            TranscriptionEngine.GEMINI -> GeminiTranscriber.transcribe(context, uri, bookmarks)
-            TranscriptionEngine.OPENAI -> OpenAiTranscriber.transcribe(context, uri)
+            TranscriptionEngine.GEMINI -> tracked(file, "Gemini") { GeminiTranscriber.transcribe(context, uri, bookmarks) }
+            TranscriptionEngine.OPENAI -> tracked(file, "OpenAI") { OpenAiTranscriber.transcribe(context, uri) }
             TranscriptionEngine.WHISPER -> WhisperTranscriber.transcribe(context, file)
         }
+
+    /** Shows [file] as in progress with a cloud engine for as long as [block] runs. */
+    private suspend fun tracked(file: File, engine: String, block: suspend () -> Result<String>): Result<String> {
+        TranscriptionStatus.begin(file.name, engine)
+        try {
+            return block()
+        } finally {
+            TranscriptionStatus.end(file.name)
+        }
+    }
 
     private fun markTranscribed(name: String, transcript: String, markdown: String = transcript) {
         RecordingLog.update(context, name) {

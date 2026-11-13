@@ -41,6 +41,7 @@ object GeminiTranscriber {
         val size = sizeOf(context, audioUri)
         // Unknown size (-1) goes the direct way too; it's checked again once read.
         if (size <= MAX_INLINE_AUDIO_BYTES) {
+            TranscriptionStatus.sending(1, 1)
             return withRetries(TAG) { transcribeOnce(context, audioUri, bookmarks, null) }
         }
         return transcribeInChunks(context, audioUri, bookmarks)
@@ -59,8 +60,11 @@ object GeminiTranscriber {
     ): Result<String> {
         val dir = File(context.cacheDir, "gemini-parts-${System.nanoTime()}").apply { mkdirs() }
         try {
+            TranscriptionStatus.transcoding(0)
             val chunks = try {
-                withContext(Dispatchers.Default) { AudioTranscoder.split(context, audioUri, dir) }
+                withContext(Dispatchers.Default) {
+                    AudioTranscoder.split(context, audioUri, dir, TranscriptionStatus::transcoding)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Could not prepare the recording for Gemini", e)
                 return Result.failure(IllegalStateException("Could not prepare the long recording for Gemini: ${e.message}", e))
@@ -70,6 +74,7 @@ object GeminiTranscriber {
             val parts = mutableListOf<String>()
             for ((i, chunk) in chunks.withIndex()) {
                 val relative = ChunkPlanning.bookmarksIn(bookmarks, chunk.startSec, chunk.endSec)
+                TranscriptionStatus.sending(i + 1, chunks.size)
                 val part = PartInfo(i + 1, chunks.size, parts.lastOrNull()?.let { ChunkPlanning.tail(it) })
                 val text = withRetries(TAG) { transcribeOnce(context, Uri.fromFile(chunk.file), relative, part) }
                     .getOrElse { return Result.failure(it) }
