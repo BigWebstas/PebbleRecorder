@@ -18,6 +18,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.pebblerecorder.app.R
 import com.pebblerecorder.app.recording.MAX_TEXT
+import com.pebblerecorder.app.recording.RecordingBackup
 import com.pebblerecorder.app.recording.RecordingEntry
 import com.pebblerecorder.app.recording.RecordingLog
 import com.pebblerecorder.app.recording.RecordingTarget
@@ -144,7 +145,8 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
     fun retry(name: String, engine: TranscriptionEngine? = null) {
         val entry = RecordingLog.entries.value.firstOrNull { it.name == name } ?: return
         val audioUri = entry.audioUri?.let(Uri::parse)
-        if (audioUri == null) {
+        val backup = RecordingBackup.audio(context, name)
+        if (audioUri == null && !backup.exists()) {
             markFailed(name, IllegalStateException("The audio file isn't in the recording folder"))
             return
         }
@@ -153,9 +155,14 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
             val audio = File(context.cacheDir, name)
             val transcriptFile = File(context.cacheDir, transcriptNameFor(name))
             try {
+                // The private backup first: a sync tool may have taken the file out of the folder.
                 val copied = runCatching {
-                    context.contentResolver.openInputStream(audioUri)!!.use { input ->
-                        audio.outputStream().use { input.copyTo(it) }
+                    if (backup.length() > 0L) {
+                        backup.copyTo(audio, overwrite = true)
+                    } else {
+                        context.contentResolver.openInputStream(audioUri!!)!!.use { input ->
+                            audio.outputStream().use { input.copyTo(it) }
+                        }
                     }
                 }
                 if (copied.isFailure) {
@@ -175,6 +182,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
                             createRecordingTarget(context, name)
                                 ?.copyToDestination(context, transcriptFile, transcriptFile.name, "text/markdown")
                         }
+                        RecordingBackup.keepTranscript(context, name, markdown)
                         RecordingLog.update(context, name) { it.copy(transcriptUri = written?.toString()) }
                         markTranscribed(name, transcript, markdown)
                     }

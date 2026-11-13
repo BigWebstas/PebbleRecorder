@@ -41,6 +41,7 @@ object RecordingRetention {
         old.forEach { entry ->
             listOfNotNull(entry.audioUri, entry.transcriptUri).forEach { TranscriptFiles.delete(context, Uri.parse(it)) }
         }
+        RecordingBackup.delete(context, old.map { it.name })
         if (old.isNotEmpty()) RecordingLog.remove(context, old.map { it.name }.toSet())
         return old.size
     }

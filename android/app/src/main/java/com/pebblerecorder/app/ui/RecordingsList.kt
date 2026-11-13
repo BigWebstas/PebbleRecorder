@@ -26,6 +26,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.pebblerecorder.app.R
 import com.pebblerecorder.app.connectivity.PebbleListenerService
+import com.pebblerecorder.app.recording.RecordingBackup
 import com.pebblerecorder.app.recording.RecordingEntry
 import com.pebblerecorder.app.recording.RecordingLog
 import com.pebblerecorder.app.recording.TranscriptState
@@ -202,7 +203,8 @@ class RecordingsList(
     private fun showMenu(anchor: View, entry: RecordingEntry) {
         val menu = PopupMenu(activity, anchor)
         val engines = TranscriptionEngine.entries
-        val canRetranscribe = entry.audioUri != null && entry.transcript != TranscriptState.PENDING
+        val canRetranscribe = (entry.audioUri != null || RecordingBackup.hasAudio(activity, entry.name)) &&
+            entry.transcript != TranscriptState.PENDING
         if (canRetranscribe) {
             engines.forEachIndexed { i, engine ->
                 menu.menu.add(0, i, i, activity.getString(R.string.menu_retranscribe, engineName(engine)))
@@ -306,6 +308,7 @@ class RecordingsList(
             withContext(Dispatchers.IO) {
                 toDelete.forEach { entry ->
                     listOfNotNull(entry.audioUri, entry.transcriptUri).forEach { TranscriptFiles.delete(activity, Uri.parse(it)) }
+                    RecordingBackup.delete(activity, entry.name)
                 }
             }
             RecordingLog.remove(activity, toDelete.map { it.name }.toSet())
