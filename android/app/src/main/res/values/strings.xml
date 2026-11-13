@@ -34,6 +34,7 @@
     <string name="chip_transcribing">Transcribing…</string>
     <string name="chip_transcribed">Transcribed</string>
     <string name="chip_failed">Failed - tap to retry</string>
+    <string name="chip_too_large">Too large - tap for details</string>
     <string name="recording_gone">That recording is no longer in the folder</string>
     <string name="transcript_unavailable">Transcript isn\'t available</string>
     <string name="today">Today</string>

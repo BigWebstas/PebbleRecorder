@@ -150,7 +150,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
             markFailed(name, IllegalStateException("The audio file isn't in the recording folder"))
             return
         }
-        RecordingLog.update(context, name) { it.copy(transcript = TranscriptState.PENDING, error = null) }
+        RecordingLog.update(context, name) { it.copy(transcript = TranscriptState.PENDING, error = null, tooLarge = false) }
         scope.launch(Dispatchers.IO) {
             val audio = File(context.cacheDir, name)
             val transcriptFile = File(context.cacheDir, transcriptNameFor(name))
@@ -218,6 +218,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
                 preview = previewOf(transcript),
                 text = markdown.take(MAX_TEXT),
                 error = null,
+                tooLarge = false,
             )
         }
         notifyReady(name, transcript)
@@ -227,7 +228,11 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
     private fun markFailed(name: String, error: Throwable) {
         Log.e(TAG, "Gave up transcribing $name", error)
         RecordingLog.update(context, name) {
-            it.copy(transcript = TranscriptState.FAILED, error = error.message ?: error.javaClass.simpleName)
+            it.copy(
+                transcript = TranscriptState.FAILED,
+                error = error.message ?: error.javaClass.simpleName,
+                tooLarge = error is RecordingTooLargeException,
+            )
         }
         notifyFailed(name, error)
         onFinished?.invoke(false)

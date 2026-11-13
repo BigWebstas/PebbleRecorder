@@ -21,6 +21,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
@@ -145,9 +146,18 @@ class RecordingsList(
             "${whenText(entry.recordedAtMs)} · ${clock(entry.durationSec)}"
 
         val preview = view.findViewById<TextView>(R.id.recording_preview)
-        preview.visibility = if (entry.preview == null) View.GONE else View.VISIBLE
-        preview.text = entry.preview
-        preview.setOnClickListener { showTranscriptDialog(entry) }
+        val failure = entry.error.takeIf { entry.transcript == TranscriptState.FAILED }
+        preview.visibility = if (entry.preview == null && failure == null) View.GONE else View.VISIBLE
+        if (failure != null) {
+            // A failed transcript shows why, in place, rather than only on a long-press.
+            preview.text = failure
+            preview.setTextColor(MaterialColors.getColor(preview, com.google.android.material.R.attr.colorError))
+            preview.setOnClickListener { showErrorDialog(entry) }
+        } else {
+            preview.text = entry.preview
+            preview.setTextColor(MaterialColors.getColor(preview, com.google.android.material.R.attr.colorOnSurface))
+            preview.setOnClickListener { showTranscriptDialog(entry) }
+        }
 
         val play = view.findViewById<ImageButton>(R.id.play_button)
         play.visibility = if (entry.audioUri == null) View.INVISIBLE else View.VISIBLE
@@ -162,6 +172,14 @@ class RecordingsList(
 
         bindStatus(view.findViewById(R.id.recording_status_chip), entry)
         return view
+    }
+
+    private fun showErrorDialog(entry: RecordingEntry) {
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.transcription_failed_notification_title)
+            .setMessage(entry.error ?: "")
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun bindStatus(chip: Chip, entry: RecordingEntry) {
@@ -185,10 +203,15 @@ class RecordingsList(
             }
             TranscriptState.FAILED -> {
                 chip.visibility = View.VISIBLE
-                chip.setText(R.string.chip_failed)
+                chip.setText(if (entry.tooLarge) R.string.chip_too_large else R.string.chip_failed)
                 chip.setChipIconResource(R.drawable.ic_warning)
                 chip.isChipIconVisible = true
-                chip.setOnClickListener { PebbleListenerService.retryTranscription(activity, entry.name) }
+                // Retrying a too-large recording with the same engine would just fail again, so
+                // the chip explains instead; the row's menu has "Transcribe again with ...".
+                chip.setOnClickListener {
+                    if (entry.tooLarge) showErrorDialog(entry)
+                    else PebbleListenerService.retryTranscription(activity, entry.name)
+                }
                 // The reason is a long-press away.
                 chip.setOnLongClickListener {
                     Toast.makeText(activity, entry.error ?: "", Toast.LENGTH_LONG).show()

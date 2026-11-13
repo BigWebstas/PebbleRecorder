@@ -46,16 +46,16 @@ object GeminiTranscriber {
                 val apiKey = GeminiPrefs.getApiKey(context)
                     ?: return@withContext Result.failure(IllegalStateException("No Gemini API key configured"))
 
+                // Check before reading: a long recording can be tens of MB, and there's no point
+                // pulling it into memory only to refuse it.
+                checkSize(sizeOf(context, audioUri), MAX_INLINE_AUDIO_BYTES.toLong(), "Gemini")
+                    ?.let { return@withContext Result.failure(it) }
+
                 val audioBytes = context.contentResolver.openInputStream(audioUri)?.use { it.readBytes() }
                     ?: return@withContext Result.failure(IllegalStateException("Could not read recording"))
 
-                if (audioBytes.size > MAX_INLINE_AUDIO_BYTES) {
-                    return@withContext Result.failure(
-                        IllegalStateException(
-                            "Recording is ${audioBytes.size} bytes, over Gemini's inline request limit",
-                        ),
-                    )
-                }
+                checkSize(audioBytes.size.toLong(), MAX_INLINE_AUDIO_BYTES.toLong(), "Gemini")
+                    ?.let { return@withContext Result.failure(it) }
 
                 val requestBody = buildRequestBody(
                     audioBytes,
