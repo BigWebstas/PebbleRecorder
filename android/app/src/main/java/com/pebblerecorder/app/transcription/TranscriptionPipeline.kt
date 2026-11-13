@@ -67,6 +67,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
     var onFinished: ((Boolean) -> Unit)? = null
 
     init {
+        TranscriptionProgressNotification(context).start(scope)
         // IMPORTANCE_LOW: shows in the shade but never makes a sound or a heads-up - the failure
         // notice is informational, not urgent.
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
