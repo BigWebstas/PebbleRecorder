@@ -22,6 +22,26 @@ class RecordingLogTest {
     }
 
     @Test
+    fun theTooLargeFlagSurvivesTheRoundTripAndDefaultsOff() {
+        val failed = RecordingEntry(
+            "a.m4a", 1L, 60, transcript = TranscriptState.FAILED, error = "too big", tooLarge = true,
+        )
+        assertEquals(failed, RecordingLog.fromJson(JSONObject(RecordingLog.toJson(failed).toString())))
+        // An entry saved before the flag existed.
+        val old = JSONObject(RecordingLog.toJson(failed).toString()).apply { remove("tooLarge") }
+        assertEquals(false, RecordingLog.fromJson(old).tooLarge)
+    }
+
+    @Test
+    fun aSummaryErrorSurvivesTheRoundTripAndDefaultsNull() {
+        val entry = RecordingEntry("a.m4a", 1L, 60, transcript = TranscriptState.DONE, summaryError = "HTTP 401")
+        val back = RecordingLog.fromJson(JSONObject(RecordingLog.toJson(entry).toString()))
+        assertEquals("HTTP 401", back.summaryError)
+        val old = JSONObject(RecordingLog.toJson(entry).toString()).apply { remove("summaryError") }
+        assertNull(RecordingLog.fromJson(old).summaryError)
+    }
+
+    @Test
     fun missingOptionalFieldsComeBackNull() {
         val bare = RecordingEntry("a.m4a", 1L, 0)
         val back = RecordingLog.fromJson(JSONObject(RecordingLog.toJson(bare).toString()))

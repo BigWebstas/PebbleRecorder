@@ -14,9 +14,9 @@ internal object WhisperLib {
     const val SPEAKER_TURN_MARKER = "[SPEAKER_TURN]"
 
     /**
-     * Transcribes 16 kHz mono [samples] (with a diarizing [WhisperModel], [diarize] adds
+     * Transcribes the first [length] of the 16 kHz mono 16-bit [samples] (with a diarizing [WhisperModel], [diarize] adds
      * [SPEAKER_TURN_MARKER] where the speaker changes), reporting 0-100 to [progress]; null if whisper failed. */
-    @JvmStatic external fun transcribe(handle: Long, samples: FloatArray, threads: Int, diarize: Boolean, progress: Progress): String?
+    @JvmStatic external fun transcribe(handle: Long, samples: ShortArray, length: Int, threads: Int, diarize: Boolean, progress: Progress): String?
 
     /** Called from the transcribing thread as whisper works through the audio. */
     fun interface Progress {

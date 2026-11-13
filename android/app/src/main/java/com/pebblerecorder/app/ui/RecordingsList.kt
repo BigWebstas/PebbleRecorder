@@ -21,11 +21,13 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.pebblerecorder.app.R
 import com.pebblerecorder.app.connectivity.PebbleListenerService
+import com.pebblerecorder.app.recording.RecordingBackup
 import com.pebblerecorder.app.recording.RecordingEntry
 import com.pebblerecorder.app.recording.RecordingLog
 import com.pebblerecorder.app.recording.TranscriptState
@@ -144,9 +146,18 @@ class RecordingsList(
             "${whenText(entry.recordedAtMs)} · ${clock(entry.durationSec)}"
 
         val preview = view.findViewById<TextView>(R.id.recording_preview)
-        preview.visibility = if (entry.preview == null) View.GONE else View.VISIBLE
-        preview.text = entry.preview
-        preview.setOnClickListener { showTranscriptDialog(entry) }
+        val failure = entry.error.takeIf { entry.transcript == TranscriptState.FAILED }
+        preview.visibility = if (entry.preview == null && failure == null) View.GONE else View.VISIBLE
+        if (failure != null) {
+            // A failed transcript shows why, in place, rather than only on a long-press.
+            preview.text = failure
+            preview.setTextColor(MaterialColors.getColor(preview, com.google.android.material.R.attr.colorError))
+            preview.setOnClickListener { showErrorDialog(entry) }
+        } else {
+            preview.text = entry.preview
+            preview.setTextColor(MaterialColors.getColor(preview, com.google.android.material.R.attr.colorOnSurface))
+            preview.setOnClickListener { showTranscriptDialog(entry) }
+        }
 
         val play = view.findViewById<ImageButton>(R.id.play_button)
         play.visibility = if (entry.audioUri == null) View.INVISIBLE else View.VISIBLE
@@ -159,8 +170,40 @@ class RecordingsList(
 
         view.findViewById<ImageButton>(R.id.more_button).setOnClickListener { showMenu(it, entry) }
 
+        bindSummaryFailure(view, entry)
         bindStatus(view.findViewById(R.id.recording_status_chip), entry)
         return view
+    }
+
+    /** A finished transcript whose summary failed says so, with a button to try just the summary again. */
+    private fun bindSummaryFailure(view: View, entry: RecordingEntry) {
+        val note = view.findViewById<TextView>(R.id.recording_summary_error)
+        val retry = view.findViewById<View>(R.id.retry_summary_button)
+        val failure = entry.summaryError.takeIf { entry.transcript == TranscriptState.DONE }
+        note.visibility = if (failure != null) View.VISIBLE else View.GONE
+        retry.visibility = note.visibility
+        if (failure == null) return
+        note.text = activity.getString(R.string.summary_failed_note, failure)
+        note.setTextColor(MaterialColors.getColor(note, com.google.android.material.R.attr.colorError))
+        note.setOnClickListener {
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(R.string.retry_summary_button)
+                .setMessage(failure)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+        }
+        retry.setOnClickListener {
+            retry.isEnabled = false
+            PebbleListenerService.retrySummary(activity, entry.name)
+        }
+    }
+
+    private fun showErrorDialog(entry: RecordingEntry) {
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.transcription_failed_notification_title)
+            .setMessage(entry.error ?: "")
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun bindStatus(chip: Chip, entry: RecordingEntry) {
@@ -184,10 +227,15 @@ class RecordingsList(
             }
             TranscriptState.FAILED -> {
                 chip.visibility = View.VISIBLE
-                chip.setText(R.string.chip_failed)
+                chip.setText(if (entry.tooLarge) R.string.chip_too_large else R.string.chip_failed)
                 chip.setChipIconResource(R.drawable.ic_warning)
                 chip.isChipIconVisible = true
-                chip.setOnClickListener { PebbleListenerService.retryTranscription(activity, entry.name) }
+                // Retrying a too-large recording with the same engine would just fail again, so
+                // the chip explains instead; the row's menu has "Transcribe again with ...".
+                chip.setOnClickListener {
+                    if (entry.tooLarge) showErrorDialog(entry)
+                    else PebbleListenerService.retryTranscription(activity, entry.name)
+                }
                 // The reason is a long-press away.
                 chip.setOnLongClickListener {
                     Toast.makeText(activity, entry.error ?: "", Toast.LENGTH_LONG).show()
@@ -202,7 +250,8 @@ class RecordingsList(
     private fun showMenu(anchor: View, entry: RecordingEntry) {
         val menu = PopupMenu(activity, anchor)
         val engines = TranscriptionEngine.entries
-        val canRetranscribe = entry.audioUri != null && entry.transcript != TranscriptState.PENDING
+        val canRetranscribe = (entry.audioUri != null || RecordingBackup.hasAudio(activity, entry.name)) &&
+            entry.transcript != TranscriptState.PENDING
         if (canRetranscribe) {
             engines.forEachIndexed { i, engine ->
                 menu.menu.add(0, i, i, activity.getString(R.string.menu_retranscribe, engineName(engine)))
@@ -306,6 +355,7 @@ class RecordingsList(
             withContext(Dispatchers.IO) {
                 toDelete.forEach { entry ->
                     listOfNotNull(entry.audioUri, entry.transcriptUri).forEach { TranscriptFiles.delete(activity, Uri.parse(it)) }
+                    RecordingBackup.delete(activity, entry.name)
                 }
             }
             RecordingLog.remove(activity, toDelete.map { it.name }.toSet())
@@ -356,6 +406,10 @@ class RecordingsList(
                 .setTitle("${whenText(entry.recordedAtMs)} · ${clock(entry.durationSec)}")
                 .setView(view)
                 .show()
+            view.findViewById<View>(R.id.transcript_summarize_button).setOnClickListener {
+                dialog.dismiss()
+                PebbleListenerService.retrySummary(activity, entry.name)
+            }
             view.findViewById<View>(R.id.transcript_share_button).setOnClickListener {
                 dialog.dismiss()
                 shareTranscript(entry)
