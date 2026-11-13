@@ -170,8 +170,32 @@ class RecordingsList(
 
         view.findViewById<ImageButton>(R.id.more_button).setOnClickListener { showMenu(it, entry) }
 
+        bindSummaryFailure(view, entry)
         bindStatus(view.findViewById(R.id.recording_status_chip), entry)
         return view
+    }
+
+    /** A finished transcript whose summary failed says so, with a button to try just the summary again. */
+    private fun bindSummaryFailure(view: View, entry: RecordingEntry) {
+        val note = view.findViewById<TextView>(R.id.recording_summary_error)
+        val retry = view.findViewById<View>(R.id.retry_summary_button)
+        val failure = entry.summaryError.takeIf { entry.transcript == TranscriptState.DONE }
+        note.visibility = if (failure != null) View.VISIBLE else View.GONE
+        retry.visibility = note.visibility
+        if (failure == null) return
+        note.text = activity.getString(R.string.summary_failed_note, failure)
+        note.setTextColor(MaterialColors.getColor(note, com.google.android.material.R.attr.colorError))
+        note.setOnClickListener {
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(R.string.retry_summary_button)
+                .setMessage(failure)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+        }
+        retry.setOnClickListener {
+            retry.isEnabled = false
+            PebbleListenerService.retrySummary(activity, entry.name)
+        }
     }
 
     private fun showErrorDialog(entry: RecordingEntry) {

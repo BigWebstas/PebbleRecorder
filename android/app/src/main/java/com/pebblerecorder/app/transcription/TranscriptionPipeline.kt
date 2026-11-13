@@ -114,7 +114,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
                             }
                             val markdown = transcriptMarkdown(
                                 transcript, recordedAt, location?.latitude, location?.longitude,
-                                locationTag, summaryFor(transcript), bookmarks,
+                                locationTag, summaryFor(name, transcript), bookmarks,
                             )
                             target.transcriptFile.writeText(markdown)
                             Log.d(TAG, "Transcribed $name")
@@ -173,7 +173,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
                 transcribe(Uri.fromFile(audio), audio, engine ?: TranscriptionPrefs.engine(context))
                     .onSuccess { transcript ->
                         val markdown = transcriptMarkdown(
-                            transcript, entry.recordedAtMs, null, null, null, summaryFor(transcript), emptyList(),
+                            transcript, entry.recordedAtMs, null, null, null, summaryFor(name, transcript), emptyList(),
                         )
                         val existing = entry.transcriptUri?.let(Uri::parse)
                         val written = if (existing != null && TranscriptFiles.write(context, existing, markdown)) {
@@ -195,10 +195,48 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
         }
     }
 
-    /** The summary to put above the transcript, or null if summaries are off or the provider failed. */
-    private suspend fun summaryFor(transcript: String): String? =
-        if (!TranscriptionPrefs.summaryEnabled(context)) null
-        else Summarizer.summarize(context, transcript).onFailure { Log.w(TAG, "Summary failed", it) }.getOrNull()
+    /**
+     * The summary to put above the transcript, or null if summaries are off or the provider
+     * failed. The outcome is recorded on the list entry so a failure shows on the row.
+     */
+    private suspend fun summaryFor(name: String, transcript: String): String? {
+        if (!TranscriptionPrefs.summaryEnabled(context)) {
+            RecordingLog.update(context, name) { it.copy(summaryError = null) }
+            return null
+        }
+        val result = Summarizer.summarize(context, transcript)
+        result.onFailure { Log.w(TAG, "Summary failed", it) }
+        RecordingLog.update(context, name) {
+            it.copy(summaryError = result.exceptionOrNull()?.let { e -> e.message ?: e.javaClass.simpleName })
+        }
+        return result.getOrNull()
+    }
+
+    /**
+     * Writes a summary into the already-saved transcript of [name], without transcribing again.
+     * Works from the private backup copy, falling back to the delivered file.
+     */
+    fun retrySummary(name: String) {
+        val entry = RecordingLog.entries.value.firstOrNull { it.name == name } ?: return
+        scope.launch(Dispatchers.IO) {
+            val uri = entry.transcriptUri?.let(Uri::parse)
+            val saved = RecordingBackup.transcript(context, name).takeIf { it.length() > 0L }?.readText()
+                ?: uri?.let { TranscriptFiles.read(context, it) }
+            if (saved == null) {
+                RecordingLog.update(context, name) {
+                    it.copy(summaryError = "The transcript file isn't in the recording folder any more")
+                }
+                return@launch
+            }
+            RecordingLog.update(context, name) { it.copy(summaryError = null) }
+            val parts = splitTranscriptMarkdown(saved)
+            val summary = summaryFor(name, parts.transcript) ?: return@launch
+            val markdown = TranscriptParts(parts.head, summary, parts.transcript, parts.bookmarks).markdown()
+            if (uri != null) TranscriptFiles.write(context, uri, markdown)
+            RecordingBackup.keepTranscript(context, name, markdown)
+            RecordingLog.update(context, name) { it.copy(text = markdown.take(MAX_TEXT)) }
+        }
+    }
 
     private suspend fun transcribe(
         uri: Uri,

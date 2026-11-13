@@ -38,6 +38,8 @@
     <string name="chip_transcribing">Transcribing…</string>
     <string name="chip_transcribed">Transcribed</string>
     <string name="chip_failed">Failed - tap to retry</string>
+    <string name="summary_failed_note">Summary failed: %1$s</string>
+    <string name="retry_summary_button">Retry summary</string>
     <string name="chip_too_large">Too large - tap for details</string>
     <string name="recording_gone">That recording is no longer in the folder</string>
     <string name="transcript_unavailable">Transcript isn\'t available</string>
