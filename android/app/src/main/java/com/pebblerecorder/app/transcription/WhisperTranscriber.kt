@@ -36,22 +36,23 @@ object WhisperTranscriber {
                 synchronized(lock) {
                     TranscriptionStatus.begin(audio.name)
                     try {
-                        val samples = SilenceTrimmer.trim(AudioDecoder.decode(audio))
-                        val model = modelFor(context, selected, samples.size)
+                        val pcm = AudioDecoder.decode(audio)
+                        val length = SilenceTrimmer.trim(pcm.data, pcm.size)
+                        val model = modelFor(context, selected, length)
                         val modelFile = WhisperModels.file(context, model)
                         val handle = WhisperLib.init(modelFile.path)
                         check(handle != 0L) { "Could not load the ${model.label} Whisper model" }
                         try {
                             val threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
                             val text = WhisperLib.transcribe(
-                                handle, samples, threads, model.diarizes, TranscriptionStatus::progress,
+                                handle, pcm.data, length, threads, model.diarizes, TranscriptionStatus::progress,
                             ) ?: error("Whisper failed to transcribe the recording")
                             if (model.diarizes) labelSpeakers(text) else text.trim()
                         } finally {
                             WhisperLib.free(handle)
                         }
                     } finally {
-                        TranscriptionStatus.end()
+                        TranscriptionStatus.end(audio.name)
                     }
                 }
             }

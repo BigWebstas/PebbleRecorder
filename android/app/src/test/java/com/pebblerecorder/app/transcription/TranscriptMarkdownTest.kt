@@ -35,4 +35,29 @@ class TranscriptMarkdownTest {
         assertTrue(md.contains("location: 40.5, -111.9\n"))
         assertTrue(md.endsWith("## Bookmarks\n\n- 02:13\n- 05:40\n"))
     }
+
+    @Test
+    fun splittingAndRejoiningGivesTheSameFile() {
+        listOf(
+            transcriptMarkdown("Hello.", 0L, null, null, null, null, emptyList()),
+            transcriptMarkdown("Hello.", 0L, 40.5, -111.9, "#1600AmphPkwy", "A greeting.\n- do x", listOf(133, 340)),
+            transcriptMarkdown("**Speaker 1:** Hi", 0L, null, null, "#tag", null, listOf(5)),
+        ).forEach { assertEquals(it, splitTranscriptMarkdown(it).markdown()) }
+    }
+
+    @Test
+    fun partsExposeTheTranscriptWithoutSummaryOrBookmarks() {
+        val md = transcriptMarkdown("Hello.", 0L, null, null, "#tag", "Sum.", listOf(5))
+        val parts = splitTranscriptMarkdown(md)
+        assertEquals("Hello.", parts.transcript)
+        assertEquals("Sum.", parts.summary)
+        assertEquals("\n\n## Bookmarks\n\n- 00:05\n", parts.bookmarks)
+    }
+
+    @Test
+    fun addingASummaryMatchesWritingItInTheFirstPlace() {
+        val without = splitTranscriptMarkdown(transcriptMarkdown("Hello.", 0L, 1.0, 2.0, "#tag", null, listOf(7)))
+        val added = TranscriptParts(without.head, "Sum.", without.transcript, without.bookmarks).markdown()
+        assertEquals(transcriptMarkdown("Hello.", 0L, 1.0, 2.0, "#tag", "Sum.", listOf(7)), added)
+    }
 }

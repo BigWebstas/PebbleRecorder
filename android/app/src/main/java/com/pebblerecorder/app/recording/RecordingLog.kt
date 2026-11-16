@@ -31,6 +31,10 @@ data class RecordingEntry(
     /** The transcript itself (cut to [MAX_TEXT] characters), for searching the list. */
     val text: String? = null,
     val error: String? = null,
+    /** The transcript failed because the audio is over the chosen cloud engine's size limit. */
+    val tooLarge: Boolean = false,
+    /** Summaries are on but the provider failed, so the transcript has none. Null when fine. */
+    val summaryError: String? = null,
 )
 
 /**
@@ -98,6 +102,8 @@ object RecordingLog {
         .put("preview", e.preview)
         .put("text", e.text)
         .put("error", e.error)
+        .put("tooLarge", e.tooLarge)
+        .put("summaryError", e.summaryError)
 
     internal fun fromJson(o: JSONObject) = RecordingEntry(
         name = o.getString("name"),
@@ -110,5 +116,7 @@ object RecordingLog {
         preview = o.optString("preview").takeIf { it.isNotEmpty() && it != "null" },
         text = o.optString("text").takeIf { it.isNotEmpty() && it != "null" },
         error = o.optString("error").takeIf { it.isNotEmpty() && it != "null" },
+        tooLarge = o.optBoolean("tooLarge", false),
+        summaryError = o.optString("summaryError").takeIf { it.isNotEmpty() && it != "null" },
     )
 }

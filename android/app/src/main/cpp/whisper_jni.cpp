@@ -1,6 +1,8 @@
 #include <jni.h>
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 #include "whisper.h"
 
@@ -43,7 +45,7 @@ Java_com_pebblerecorder_app_transcription_WhisperLib_free(JNIEnv *, jclass, jlon
 // Returns the transcript, or null if whisper failed.
 JNIEXPORT jstring JNICALL
 Java_com_pebblerecorder_app_transcription_WhisperLib_transcribe(
-        JNIEnv *env, jclass, jlong handle, jfloatArray samples, jint threads, jboolean diarize, jobject progress) {
+        JNIEnv *env, jclass, jlong handle, jshortArray samples, jint length, jint threads, jboolean diarize, jobject progress) {
     auto *ctx = reinterpret_cast<whisper_context *>(handle);
 
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
@@ -60,10 +62,16 @@ Java_com_pebblerecorder_app_transcription_WhisperLib_transcribe(
     params.progress_callback = onProgress;
     params.progress_callback_user_data = &target;
 
-    jsize length = env->GetArrayLength(samples);
-    jfloat *data = env->GetFloatArrayElements(samples, nullptr);
-    int rc = whisper_full(ctx, params, data, length);
-    env->ReleaseFloatArrayElements(samples, data, JNI_ABORT);
+    // The audio arrives as 16-bit samples so the Java heap only holds half as much; the floats
+    // whisper wants live in native memory, which that heap limit doesn't cover.
+    length = std::min(length, env->GetArrayLength(samples));
+    std::vector<float> floats(length);
+    {
+        jshort *data = env->GetShortArrayElements(samples, nullptr);
+        for (jint i = 0; i < length; i++) floats[i] = data[i] / 32768.0f;
+        env->ReleaseShortArrayElements(samples, data, JNI_ABORT);
+    }
+    int rc = whisper_full(ctx, params, floats.data(), length);
     if (rc != 0) return nullptr;
 
     std::string text;

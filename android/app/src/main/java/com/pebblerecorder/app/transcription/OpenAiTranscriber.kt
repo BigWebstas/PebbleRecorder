@@ -24,20 +24,19 @@ object OpenAiTranscriber {
 
     /** Transcribes [audioUri], retrying transient failures (see [withRetries]). */
     suspend fun transcribe(context: Context, audioUri: Uri): Result<String> =
-        withRetries(TAG) { transcribeOnce(context, audioUri) }
+        withRetries(TAG) { TranscriptionStatus.sending(1, 1); transcribeOnce(context, audioUri) }
 
     private suspend fun transcribeOnce(context: Context, audioUri: Uri): Result<String> =
         withContext(Dispatchers.IO) {
             try {
                 val apiKey = TranscriptionPrefs.openAiApiKey(context)
                     ?: return@withContext Result.failure(IllegalStateException("No OpenAI API key configured"))
+                checkSize(sizeOf(context, audioUri), MAX_AUDIO_BYTES, "OpenAI")
+                    ?.let { return@withContext Result.failure(it) }
                 val audio = context.contentResolver.openInputStream(audioUri)?.use { it.readBytes() }
                     ?: return@withContext Result.failure(IllegalStateException("Could not read recording"))
-                if (audio.size > MAX_AUDIO_BYTES) {
-                    return@withContext Result.failure(
-                        IllegalStateException("Recording is ${audio.size} bytes, over OpenAI's 25MB upload limit"),
-                    )
-                }
+                checkSize(audio.size.toLong(), MAX_AUDIO_BYTES, "OpenAI")
+                    ?.let { return@withContext Result.failure(it) }
                 val name = audioUri.lastPathSegment ?: "recording.m4a"
                 val (code, body) = try {
                     post(apiKey, name, RecordingFormat.mimeTypeOf(name), audio)

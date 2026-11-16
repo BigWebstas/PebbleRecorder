@@ -22,7 +22,8 @@ private const val DOWNLOADS_SUBFOLDER = "PebbleRecorder"
  * works out of the box before anyone's opened the app's settings.
  *
  * Both files are written into app-private storage ([file], [transcriptFile]), which no other app
- * can see, and only moved to the destination together by [finalize] once everything is done.
+ * can see, and only copied to the destination together by [finalize] once everything is done
+ * (the private copies are then kept as a backup, see [RecordingBackup]).
  * Folder watchers (Syncthing, ...) therefore never see a partial file or an audio file without its
  * transcript - there's no cross-app file lock over SAF, and hidden dotfiles are still synced by
  * most tools.
@@ -45,8 +46,8 @@ sealed interface RecordingTarget {
     data class Delivery(val audioUri: Uri, val transcriptUri: Uri?)
 
     /**
-     * Moves the transcript (if one was written) and the recording to their destination, deleting
-     * the private copies. On failure the private copies are kept, so [recoverOrphanedRecordings]
+     * Copies the transcript (if one was written) and the recording to their destination, then moves
+     * the private files into [RecordingBackup]. On failure the private copies are kept, so [recoverOrphanedRecordings]
      * can retry on the next start.
      */
     fun finalize(context: Context): Delivery? {
@@ -54,10 +55,10 @@ sealed interface RecordingTarget {
         var transcriptUri: Uri? = null
         if (transcript.exists()) {
             transcriptUri = copyToDestination(context, transcript, transcript.name, "text/markdown") ?: return null
-            transcript.delete()
+            RecordingBackup.keep(context, transcript, transcript.name)
         }
         val audioUri = copyToDestination(context, file, displayName, RecordingFormat.mimeTypeOf(displayName)) ?: return null
-        file.delete()
+        RecordingBackup.keep(context, file, displayName)
         return Delivery(audioUri, transcriptUri)
     }
 

@@ -64,6 +64,7 @@ private const val AUTO_DELETE_NOTIFICATION_ID = 3
 private const val ACTION_COMMAND = "com.pebblerecorder.app.action.COMMAND"
 private const val EXTRA_COMMAND = "command"
 private const val ACTION_RETRY_TRANSCRIPTION = "com.pebblerecorder.app.action.RETRY_TRANSCRIPTION"
+private const val ACTION_RETRY_SUMMARY = "com.pebblerecorder.app.action.RETRY_SUMMARY"
 private const val EXTRA_RECORDING_NAME = "recording_name"
 private const val EXTRA_ENGINE = "engine"
 
@@ -100,6 +101,16 @@ class PebbleListenerService : BasePebbleListenerService() {
                     .setAction(ACTION_RETRY_TRANSCRIPTION)
                     .putExtra(EXTRA_RECORDING_NAME, name)
                     .putExtra(EXTRA_ENGINE, engine?.name),
+            )
+        }
+
+        /** Summarizes the saved transcript of [name] again, after the summary failed. */
+        fun retrySummary(context: Context, name: String) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, PebbleListenerService::class.java)
+                    .setAction(ACTION_RETRY_SUMMARY)
+                    .putExtra(EXTRA_RECORDING_NAME, name),
             )
         }
 
@@ -172,6 +183,9 @@ class PebbleListenerService : BasePebbleListenerService() {
             val engine = intent.getStringExtra(EXTRA_ENGINE)
                 ?.let { name -> TranscriptionEngine.entries.firstOrNull { it.name == name } }
             intent.getStringExtra(EXTRA_RECORDING_NAME)?.let { transcription.retry(it, engine) }
+        }
+        if (intent?.action == ACTION_RETRY_SUMMARY) {
+            intent.getStringExtra(EXTRA_RECORDING_NAME)?.let { transcription.retrySummary(it) }
         }
         return START_STICKY
     }

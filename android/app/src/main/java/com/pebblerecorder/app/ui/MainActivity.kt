@@ -288,10 +288,11 @@ class MainActivity : AppCompatActivity() {
                 // The clock ticks once a second, independent of whisper's coarser progress updates.
                 while (true) {
                     val elapsed = formatClock(((System.currentTimeMillis() - active.startedAtMs) / 1000).toInt())
+                    val label = active.label(this@MainActivity)
                     transcriptionText.text = if (active.percent == null) {
-                        getString(R.string.transcribing_progress, elapsed)
+                        getString(R.string.transcribing_progress, "$label · $elapsed")
                     } else {
-                        getString(R.string.transcribing_progress_percent, active.percent, elapsed)
+                        getString(R.string.transcribing_progress_percent, active.percent, "$label · $elapsed")
                     }
                     delay(1000)
                 }

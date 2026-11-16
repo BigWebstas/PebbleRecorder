@@ -14,10 +14,12 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.pebblerecorder.app.R
 import com.pebblerecorder.app.recording.MAX_TEXT
+import com.pebblerecorder.app.recording.RecordingBackup
 import com.pebblerecorder.app.recording.RecordingEntry
 import com.pebblerecorder.app.recording.RecordingLog
 import com.pebblerecorder.app.recording.RecordingTarget
@@ -66,6 +68,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
     var onFinished: ((Boolean) -> Unit)? = null
 
     init {
+        TranscriptionProgressNotification(context).start(scope)
         // IMPORTANCE_LOW: shows in the shade but never makes a sound or a heads-up - the failure
         // notice is informational, not urgent.
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -112,7 +115,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
                             }
                             val markdown = transcriptMarkdown(
                                 transcript, recordedAt, location?.latitude, location?.longitude,
-                                locationTag, summaryFor(transcript), bookmarks,
+                                locationTag, summaryFor(name, transcript), bookmarks,
                             )
                             target.transcriptFile.writeText(markdown)
                             Log.d(TAG, "Transcribed $name")
@@ -144,18 +147,24 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
     fun retry(name: String, engine: TranscriptionEngine? = null) {
         val entry = RecordingLog.entries.value.firstOrNull { it.name == name } ?: return
         val audioUri = entry.audioUri?.let(Uri::parse)
-        if (audioUri == null) {
+        val backup = RecordingBackup.audio(context, name)
+        if (audioUri == null && !backup.exists()) {
             markFailed(name, IllegalStateException("The audio file isn't in the recording folder"))
             return
         }
-        RecordingLog.update(context, name) { it.copy(transcript = TranscriptState.PENDING, error = null) }
+        RecordingLog.update(context, name) { it.copy(transcript = TranscriptState.PENDING, error = null, tooLarge = false) }
         scope.launch(Dispatchers.IO) {
             val audio = File(context.cacheDir, name)
             val transcriptFile = File(context.cacheDir, transcriptNameFor(name))
             try {
+                // The private backup first: a sync tool may have taken the file out of the folder.
                 val copied = runCatching {
-                    context.contentResolver.openInputStream(audioUri)!!.use { input ->
-                        audio.outputStream().use { input.copyTo(it) }
+                    if (backup.length() > 0L) {
+                        backup.copyTo(audio, overwrite = true)
+                    } else {
+                        context.contentResolver.openInputStream(audioUri!!)!!.use { input ->
+                            audio.outputStream().use { input.copyTo(it) }
+                        }
                     }
                 }
                 if (copied.isFailure) {
@@ -165,7 +174,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
                 transcribe(Uri.fromFile(audio), audio, engine ?: TranscriptionPrefs.engine(context))
                     .onSuccess { transcript ->
                         val markdown = transcriptMarkdown(
-                            transcript, entry.recordedAtMs, null, null, null, summaryFor(transcript), emptyList(),
+                            transcript, entry.recordedAtMs, null, null, null, summaryFor(name, transcript), emptyList(),
                         )
                         val existing = entry.transcriptUri?.let(Uri::parse)
                         val written = if (existing != null && TranscriptFiles.write(context, existing, markdown)) {
@@ -175,6 +184,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
                             createRecordingTarget(context, name)
                                 ?.copyToDestination(context, transcriptFile, transcriptFile.name, "text/markdown")
                         }
+                        RecordingBackup.keepTranscript(context, name, markdown)
                         RecordingLog.update(context, name) { it.copy(transcriptUri = written?.toString()) }
                         markTranscribed(name, transcript, markdown)
                     }
@@ -186,10 +196,60 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
         }
     }
 
-    /** The summary to put above the transcript, or null if summaries are off or the provider failed. */
-    private suspend fun summaryFor(transcript: String): String? =
-        if (!TranscriptionPrefs.summaryEnabled(context)) null
-        else Summarizer.summarize(context, transcript).onFailure { Log.w(TAG, "Summary failed", it) }.getOrNull()
+    /**
+     * The summary to put above the transcript, or null if summaries are off or the provider
+     * failed. The outcome is recorded on the list entry so a failure shows on the row.
+     */
+    private suspend fun summaryFor(name: String, transcript: String, force: Boolean = false): String? {
+        if (!force && !TranscriptionPrefs.summaryEnabled(context)) {
+            RecordingLog.update(context, name) { it.copy(summaryError = null) }
+            return null
+        }
+        val result = Summarizer.summarize(context, transcript)
+        result.onFailure { Log.w(TAG, "Summary failed", it) }
+        RecordingLog.update(context, name) {
+            it.copy(summaryError = result.exceptionOrNull()?.let { e -> e.message ?: e.javaClass.simpleName })
+        }
+        return result.getOrNull()
+    }
+
+    /**
+     * Writes a summary into the already-saved transcript of [name], without transcribing again.
+     * Works from the private backup copy, falling back to the delivered file.
+     */
+    fun retrySummary(name: String) {
+        val entry = RecordingLog.entries.value.firstOrNull { it.name == name } ?: return
+        scope.launch(Dispatchers.IO) {
+            val uri = entry.transcriptUri?.let(Uri::parse)
+            val saved = RecordingBackup.transcript(context, name).takeIf { it.length() > 0L }?.readText()
+                ?: uri?.let { TranscriptFiles.read(context, it) }
+            if (saved == null) {
+                RecordingLog.update(context, name) {
+                    it.copy(summaryError = "The transcript file isn't in the recording folder any more")
+                }
+                return@launch
+            }
+            RecordingLog.update(context, name) { it.copy(summaryError = null) }
+            val parts = splitTranscriptMarkdown(saved)
+            toast(context.getString(R.string.summarizing_toast))
+            // Asked for by hand, so it runs even with summaries off for new recordings.
+            val summary = summaryFor(name, parts.transcript, force = true)
+            if (summary == null) {
+                val why = RecordingLog.entries.value.firstOrNull { it.name == name }?.summaryError ?: ""
+                toast(context.getString(R.string.summary_failed_toast, why))
+                return@launch
+            }
+            val markdown = TranscriptParts(parts.head, summary, parts.transcript, parts.bookmarks).markdown()
+            if (uri != null) TranscriptFiles.write(context, uri, markdown)
+            RecordingBackup.keepTranscript(context, name, markdown)
+            RecordingLog.update(context, name) { it.copy(text = markdown.take(MAX_TEXT)) }
+            toast(context.getString(R.string.summary_added_toast))
+        }
+    }
+
+    private suspend fun toast(message: String) = withContext(Dispatchers.Main) {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
 
     private suspend fun transcribe(
         uri: Uri,
@@ -198,10 +258,20 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
         bookmarks: List<Int> = emptyList(),
     ): Result<String> =
         when (engine) {
-            TranscriptionEngine.GEMINI -> GeminiTranscriber.transcribe(context, uri, bookmarks)
-            TranscriptionEngine.OPENAI -> OpenAiTranscriber.transcribe(context, uri)
+            TranscriptionEngine.GEMINI -> tracked(file, "Gemini") { GeminiTranscriber.transcribe(context, uri, bookmarks) }
+            TranscriptionEngine.OPENAI -> tracked(file, "OpenAI") { OpenAiTranscriber.transcribe(context, uri) }
             TranscriptionEngine.WHISPER -> WhisperTranscriber.transcribe(context, file)
         }
+
+    /** Shows [file] as in progress with a cloud engine for as long as [block] runs. */
+    private suspend fun tracked(file: File, engine: String, block: suspend () -> Result<String>): Result<String> {
+        TranscriptionStatus.begin(file.name, engine)
+        try {
+            return block()
+        } finally {
+            TranscriptionStatus.end(file.name)
+        }
+    }
 
     private fun markTranscribed(name: String, transcript: String, markdown: String = transcript) {
         RecordingLog.update(context, name) {
@@ -210,6 +280,7 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
                 preview = previewOf(transcript),
                 text = markdown.take(MAX_TEXT),
                 error = null,
+                tooLarge = false,
             )
         }
         notifyReady(name, transcript)
@@ -219,7 +290,11 @@ class TranscriptionPipeline(private val context: Context, private val scope: Cor
     private fun markFailed(name: String, error: Throwable) {
         Log.e(TAG, "Gave up transcribing $name", error)
         RecordingLog.update(context, name) {
-            it.copy(transcript = TranscriptState.FAILED, error = error.message ?: error.javaClass.simpleName)
+            it.copy(
+                transcript = TranscriptState.FAILED,
+                error = error.message ?: error.javaClass.simpleName,
+                tooLarge = error is RecordingTooLargeException,
+            )
         }
         notifyFailed(name, error)
         onFinished?.invoke(false)
